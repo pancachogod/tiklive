@@ -1,0 +1,45 @@
+:root {
+  --bg: rgba(7,11,24,.8);
+  --card: rgba(20,24,39,.9);
+  --accent: #ff3b3b;
+  --coin: #f4c542;
+  --text: #fff;
+}
+*{ box-sizing: border-box }
+body{
+  margin:0; font-family: system-ui, Segoe UI, Roboto, sans-serif; color:var(--text);
+  background: transparent;
+}
+.panel{
+  position:absolute; right:12px; top:12px; width:340px; border-radius:18px;
+  padding:12px; background: var(--bg); backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,.08);
+}
+.timer{
+  height:70px; border-radius:12px; display:flex; align-items:center; justify-content:center;
+  background: radial-gradient(80% 80% at 50% 50%, rgba(255,0,0,.2), rgba(0,0,0,.6));
+  font-weight:800; font-size:34px; letter-spacing: 2px; color: var(--accent);
+  text-shadow: 0 0 8px rgba(255,0,0,.6);
+  margin-bottom: 10px; border:1px solid rgba(255,0,0,.25);
+}
+.row{ display:flex; align-items:center; gap:10px; background:var(--card);
+  border-radius:14px; padding:10px 12px; margin:8px 0; border:1px solid rgba(255,255,255,.06);
+}
+.badge{
+  width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+  background: linear-gradient(180deg, #ffd76a, #e6a700); color:#111; font-weight:800;
+  border: 1px solid rgba(0,0,0,.2);
+}
+.badge.silver{ background: linear-gradient(180deg, #e4e8ec, #b7bec8) }
+.badge.bronze{ background: linear-gradient(180deg, #f0c08a, #c9843b) }
+.avatar{
+  width:34px; height:34px; border-radius:50%; background:#222; border:1px solid rgba(255,255,255,.1);
+}
+.name{ font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.coin{ margin-left:auto; display:flex; align-items:center; gap:6px; font-weight:800 }
+.coin:before{
+  content:'';
+  width:16px; height:16px; border-radius:50%;
+  background: radial-gradient(circle at 30% 30%, #fff9, #0000), linear-gradient(180deg, #ffe07a, #d8a41d);
+  border: 1px solid rgba(0,0,0,.25);
+}

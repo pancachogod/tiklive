@@ -1,0 +1,13 @@
+services:
+- type: web
+  name: tiktok-auction-backend
+  env: node
+  rootDir: backend
+  plan: free
+  buildCommand: "npm install"
+  startCommand: "npm start"
+  envVars:
+  - key: TIKTOK_USER
+    value: sticx33
+  - key: PORT
+    value: 3000
