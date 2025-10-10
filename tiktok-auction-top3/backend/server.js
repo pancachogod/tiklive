@@ -3,7 +3,7 @@ import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
-import TikTokLiveConnection from 'tiktok-live-connector';
+import { WebcastPushConnection } from 'tiktok-live-connector';
 
 const TIKTOK_USER = process.env.TIKTOK_USER || 'sticx33';
 const PORT = process.env.PORT || 3000;
@@ -23,7 +23,7 @@ let auction = {
 };
 const donors = new Map();
 
-const tiktok = new TikTokLiveConnection(TIKTOK_USER);
+const tiktok = new WebcastPushConnection(TIKTOK_USER);
 tiktok.connect()
   .then(() => console.log('Conectado a TikTok LIVE de', TIKTOK_USER))
   .catch(err => console.error('Error conectando a TikTok:', err));
