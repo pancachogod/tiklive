@@ -2,14 +2,12 @@
   "name": "tiktok-auction-backend",
   "private": true,
   "type": "module",
-  "scripts": {
-    "start": "node server.js"
-  },
+  "scripts": { "start": "node server.js" },
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "socket.io": "^4.7.5",
-    "tiktok-live-connector": "^1.6.9"
+    "tiktok-live-connector": "^2.1.0"
   }
 }
