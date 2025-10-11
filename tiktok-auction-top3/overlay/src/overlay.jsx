@@ -1,377 +1,205 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { io } from 'socket.io-client'
-import './style.css'
-
-/* ============================================================
-   APP: Gate de licencia → (Admin? Gate? Wizard u Overlay)
-============================================================ */
-export default function App() {
-  const q = new URLSearchParams(location.search)
-  const admin = q.get('admin') === '1'
-  if (admin) return <AdminPanel />
-  return (
-    <LicenseGate>
-      <Decider />
-    </LicenseGate>
-  )
+/* ----------------------------------------------------------
+   BASE / RESET
+---------------------------------------------------------- */
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body{
+  margin: 0;
+  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  background: radial-gradient(160% 140% at 50% -30%, #182132, #0e121b);
+  color: #fff;
 }
 
-/* Decide si mostrar Room Wizard o Overlay */
-function Decider() {
-  const q = new URLSearchParams(location.search)
-  const room = (q.get('room') || '').trim()
-  if (!room) return <RoomWizard />
-  return <AuctionOverlay />
+/* ----------------------------------------------------------
+   OVERLAY: CONTADOR + TOP (estilo foto)
+---------------------------------------------------------- */
+.panel{
+  position: fixed;
+  top: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+  z-index: 20;
 }
 
-/* ======================= LICENSE GATE ======================= */
-function LicenseGate({ children }) {
-  const q = new URLSearchParams(location.search)
-  const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || 'http://localhost:3000'
-  const WS = RAW_WS.replace(/\/+$/, '')
-  const telURL = `${WS}/license/telegram` // abre tu canal de Telegram (Render env)
-
-  const [checking, setChecking] = useState(true)
-  const [ok, setOk] = useState(false)
-  const [key, setKey] = useState(q.get('key') || localStorage.getItem('LIC_KEY') || '')
-  const [msg, setMsg] = useState('')
-
-  useEffect(() => {
-    (async () => {
-      const k = (q.get('key') || localStorage.getItem('LIC_KEY') || '').trim()
-      if (!k) { setChecking(false); setOk(false); return }
-      const r = await verifyKey(WS, k)
-      if (r.ok) { localStorage.setItem('LIC_KEY', k); setOk(true) }
-      else { setOk(false) }
-      setChecking(false)
-    })()
-  }, [WS])
-
-  if (checking) {
-    return (
-      <div className="gate">
-        <div className="g-card"><div className="g-title">Verificando licencia…</div></div>
-      </div>
-    )
-  }
-  if (ok) return children
-
-  const redeem = async () => {
-    setMsg('')
-    const k = key.trim()
-    if (!k) { setMsg('Ingresa tu código.'); return }
-    const r = await verifyKey(WS, k)
-    if (r.ok) { localStorage.setItem('LIC_KEY', k); setOk(true) }
-    else setMsg('Código inválido o vencido.')
-  }
-  const getMembership = () => window.open(telURL, '_blank')
-
-  return (
-    <div className="gate">
-      <div className="g-card">
-        <div className="g-title">Canjear código</div>
-        <div className="g-field">
-          <input value={key} onChange={e=>setKey(e.target.value)} placeholder="Pega tu código aquí" />
-        </div>
-        {msg && <div className="g-msg">{msg}</div>}
-        <div className="g-actions">
-          <button className="g-primary" onClick={redeem}>Canjear</button>
-          <button className="g-ghost" onClick={getMembership}>Obtener membresía</button>
-        </div>
-        <div className="g-hint">¿No tienes un código? Pulsa “Obtener membresía”.</div>
-      </div>
-    </div>
-  )
+/* Contador grande */
+.timer{
+  position: relative;
+  display: inline-block;
+  padding: 36px 72px;
+  border-radius: 28px;
+  background: #343a40;
+  box-shadow:
+    0 14px 28px rgba(0,0,0,.35),
+    inset 0 0 0 2px rgba(0,0,0,.15);
+  color: #ff3b32;
+  font-family: "Digital-7","DS-Digital","Orbitron", ui-sans-serif, system-ui;
+  font-weight: 900;
+  font-size: 110px;
+  letter-spacing: 6px;
+  line-height: 1;
+  text-shadow:
+    0 0 12px rgba(255,60,50,.9),
+    0 0 26px rgba(255,60,50,.55);
+}
+.timer::before{
+  content: "";
+  position: absolute; inset: 12px;
+  border-radius: 22px;
+  background:
+    radial-gradient(120% 80% at 50% 25%, #000000b0 15%, #7a1e24 55%, #2a0f12 100%);
+  box-shadow:
+    inset 0 0 0 2px rgba(255,50,50,.35),
+    inset 0 0 38px rgba(255,50,50,.28);
+  z-index: -1;
 }
 
-async function verifyKey(WS, key) {
-  try {
-    const res = await fetch(`${WS}/license/verify`, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ key })
-    })
-    return await res.json()
-  } catch {
-    return { ok:false, error:'network' }
-  }
+/* Engranaje fuera del contador (arriba-izquierda) */
+.gear{
+  position: fixed;
+  top: 12px; left: 12px;
+  background: rgba(255,255,255,.12);
+  border: 1px solid rgba(255,255,255,.22);
+  color: #fff;
+  border-radius: 12px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 22px;
+  z-index: 9999;
+  transition: background .2s ease, transform .1s ease;
+}
+.gear:hover{ background: rgba(255,255,255,.22); transform: translateY(-1px); }
+
+/* Tarjeta Top donadores (estilo imagen) */
+.row{
+  display: flex; align-items: center; gap: 18px;
+  padding: 18px 24px;
+  min-width: 760px;
+  background: linear-gradient(180deg, #2f3640, #313949);
+  border-radius: 34px;
+  box-shadow: 0 10px 24px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.06);
+}
+.badge{
+  width: 96px; height: 96px; flex: 0 0 96px;
+  display:flex; align-items:center; justify-content:center;
+  border-radius:50%;
+  background: radial-gradient(circle at 30% 30%, #fff6, #0000),
+             linear-gradient(180deg, #ffd84a, #d9a400);
+  color:#111; font-weight:900; font-size:44px;
+  box-shadow: inset 0 0 0 3px rgba(0,0,0,.15), 0 4px 10px rgba(0,0,0,.35);
+}
+.badge.silver{
+  background: radial-gradient(circle at 30% 30%, #fff6, #0000),
+             linear-gradient(180deg, #dfe3ea, #aeb6c4);
+}
+.badge.bronze{
+  background: radial-gradient(circle at 30% 30%, #fff6, #0000),
+             linear-gradient(180deg, #e8a56a, #b46a2b);
+}
+.avatar{
+  width:100px; height:100px; flex:0 0 100px;
+  border-radius:50%; object-fit:cover;
+  box-shadow: 0 2px 8px rgba(0,0,0,.35), inset 0 0 0 3px rgba(255,255,255,.12);
+}
+.name{
+  flex:1; color:#fff; font-weight:800; font-size:56px; letter-spacing:.5px;
+  text-shadow: 0 2px 4px rgba(0,0,0,.35);
+  overflow:hidden; white-space:nowrap; text-overflow:ellipsis;
+}
+.coin{
+  display:flex; align-items:center; gap:16px;
+  color:#fff; font-weight:900; font-size:54px; min-width:120px; justify-content:flex-end;
+}
+.coin::before{
+  content:"";
+  width:44px; height:44px; border-radius:50%;
+  background: radial-gradient(circle at 30% 30%, #fff8, #0000),
+             linear-gradient(180deg, #ffd84a, #d9a400);
+  box-shadow: inset 0 0 0 2px rgba(0,0,0,.25);
 }
 
-/* ======================= ADMIN PANEL ======================= */
-function AdminPanel() {
-  const q = new URLSearchParams(location.search)
-  const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || 'http://localhost:3000'
-  const WS = RAW_WS.replace(/\/+$/, '')
-
-  const [adminKey, setAdminKey] = useState('')
-  const [months, setMonths] = useState(1)
-  const [count, setCount] = useState(5)
-  const [result, setResult] = useState(null)
-  const [msg, setMsg] = useState('')
-
-  const issue = async () => {
-    setMsg('')
-    try {
-      const res = await fetch(`${WS}/admin/license/create`, {
-        method:'POST',
-        headers:{'Content-Type':'application/json', 'x-admin-key': adminKey},
-        body: JSON.stringify({ months, count })
-      })
-      const j = await res.json()
-      if (!j.ok) { setMsg(j.error || 'Error'); setResult(null); return }
-      setResult(j)
-    } catch {
-      setMsg('Error de red')
-    }
-  }
-
-  return (
-    <div className="wizard">
-      <div className="w-card">
-        <h2>Admin: Generar llaves</h2>
-
-        <div className="w-field">
-          <label>ADMIN_KEY</label>
-          <input value={adminKey} onChange={e=>setAdminKey(e.target.value)} placeholder="Tu clave de admin" />
-        </div>
-
-        <div className="w-field">
-          <label>Meses de validez</label>
-          <input type="number" min="1" max="12" value={months} onChange={e=>setMonths(Number(e.target.value))} />
-        </div>
-
-        <div className="w-field">
-          <label>Cantidad de llaves</label>
-          <input type="number" min="1" max="100" value={count} onChange={e=>setCount(Number(e.target.value))} />
-        </div>
-
-        <div className="w-actions">
-          <button className="w-primary" onClick={issue}>Generar</button>
-        </div>
-
-        {msg && <div className="w-hint" style={{color:'#ff6'}}>{msg}</div>}
-
-        {result?.ok && (
-          <div className="w-field">
-            <label>Keys generadas</label>
-            <div className="keys">
-              {result.keys.map((k, idx)=>(
-                <div key={idx} className="keyrow">
-                  <code className="keytxt">{k.key}</code>
-                  <button className="w-btn" onClick={()=>navigator.clipboard.writeText(k.key)}>Copiar</button>
-                </div>
-              ))}
-            </div>
-            <div className="w-hint">Expiran en {months} mes(es) desde hoy.</div>
-          </div>
-        )}
-      </div>
-    </div>
-  )
+/* ----------------------------------------------------------
+   PANEL CAMBIO DE USUARIO + MODAL GANADOR
+---------------------------------------------------------- */
+.sheet{ position:fixed; inset:0; background:rgba(0,0,0,.4); display:flex; align-items:center; justify-content:center; z-index:9998 }
+.card{
+  width:min(92vw,420px);
+  background:#111a; backdrop-filter:blur(14px);
+  color:#fff; border:1px solid rgba(255,255,255,.15); border-radius:16px; padding:18px;
 }
+.card h3{ margin:0 0 8px 0 }
+.field{ display:flex; gap:6px; align-items:center; background:#1b2232; border:1px solid rgba(255,255,255,.1); border-radius:10px; padding:8px 10px }
+.field span{ opacity:.7 }
+.field input{ background:transparent; border:0; outline:none; color:#fff; width:100% }
+.actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:12px }
+.actions button{ background:#222; border:1px solid rgba(255,255,255,.15); color:#fff; padding:8px 12px; border-radius:10px; cursor:pointer }
+.actions button:last-child{ background:#2b6aff; border-color:#2b6aff }
 
-/* ======================= OVERLAY (contador + top) ======================= */
-function AuctionOverlay() {
-  const q = useMemo(() => new URLSearchParams(location.search), [])
-  const room = (q.get('room') || 'demo').trim()
-  const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || 'http://localhost:3000'
-  const WS = RAW_WS.replace(/\/+$/, '')
-  const initialTitle = q.get('title') || 'Subasta'
-  const autoUser = (q.get('autouser') || '').replace(/^@+/, '').trim()
-  const topN = Number(q.get('top') || 3)
+.winner{ position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.4); z-index:9997 }
+.win-card{ width:min(92vw,420px); background:#ffdf3b; color:#111; border-radius:18px; padding:18px; box-shadow:0 10px 30px rgba(0,0,0,.35); text-align:center; border:2px solid #f3c300 }
+.trophy{ font-size:40px; margin-bottom:6px }
+.win-title{ font-size:28px; font-weight:900; margin-bottom:6px }
+.win-name{ font-size:22px; font-weight:800; color:#991b1b; margin-bottom:10px }
+.win-coins{ display:inline-flex; align-items:center; gap:8px; font-weight:800; background:#ffe97a; border:1px solid #e3b400; padding:8px 12px; border-radius:12px }
+.win-coins .dot{ width:14px; height:14px; border-radius:50%; background: radial-gradient(circle at 30% 30%, #fff9, #0000), linear-gradient(180deg,#ffe07a,#d8a41d); border:1px solid rgba(0,0,0,.25) }
+.win-footer{ margin-top:12px; font-weight:700 }
+.win-close{ margin-top:12px; background:#111; color:#fff; border:0; padding:8px 12px; border-radius:10px; cursor:pointer }
 
-  const [state, setState] = useState({ title: initialTitle, endsAt: 0, top: [] })
-  const [now, setNow] = useState(Date.now())
-  const [modal, setModal] = useState(null)
-  const [showPanel, setShowPanel] = useState(false)
-  const [userInput, setUserInput] = useState('')
-  const socketRef = useRef(null)
-
-  useEffect(() => {
-    const socket = io(WS, { transports:['websocket'], query:{ room } })
-    socketRef.current = socket
-    socket.on('state', st => setState(prev => ({ ...prev, ...st })))
-    socket.on('donation', d => setState(prev => ({ ...prev, top: d.top })))
-    return () => socket.close()
-  }, [WS, room])
-
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 200)
-    return () => clearInterval(id)
-  }, [])
-
-  const remain = Math.max(0, (state.endsAt || 0) - now)
-  const mm = String(Math.floor(remain / 1000 / 60)).padStart(2, '0')
-  const ss = String(Math.floor(remain / 1000) % 60).padStart(2, '0')
-
-  useEffect(() => {
-    if (remain === 0 && (state.endsAt || 0) > 0) {
-      const winner = state.top?.[0]
-      if (winner) setModal({ user: winner.user, total: winner.total, avatar: winner.avatar || '' })
-    }
-  }, [remain, state.endsAt, state.top])
-
-  useEffect(() => {
-    const onKey = async (e) => {
-      if (e.key.toLowerCase() === 't') {
-        const v = Number(prompt('Duración en segundos (ej. 120):') || 0)
-        if (v > 0) {
-          await fetch(`${WS}/${room}/auction/start`, {
-            method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ durationSec: v, title: state.title })
-          })
-          setModal(null)
-        }
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [WS, room, state.title])
-
-  useEffect(() => {
-    (async () => {
-      if (!autoUser) return
-      try {
-        await fetch(`${WS}/${room}/user`, {
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ user: autoUser })
-        })
-      } catch {}
-    })()
-  }, [autoUser, WS, room])
-
-  const applyUser = async () => {
-    const clean = (userInput || '').trim().replace(/^@+/, '')
-    if (!clean) return alert('Escribe un usuario de TikTok (sin @).')
-    try {
-      const res = await fetch(`${WS}/${room}/user`, {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ user: clean })
-      })
-      const j = await res.json().catch(()=>({}))
-      if (j?.ok) { alert(`Conectando a @${clean}…`); setShowPanel(false); setModal(null) }
-      else { alert('No se pudo cambiar el usuario.') }
-    } catch { alert('No se pudo comunicar con el backend.') }
-  }
-
-  return (
-    <>
-      <div className="panel">
-        <div className="timer">{mm}:{ss}</div>
-
-        {state.top.slice(0, topN).map((d, i) => (
-          <div className="row" key={d.user + i}>
-            <div className={`badge ${i===1 ? 'silver' : i===2 ? 'bronze' : ''}`}>{i+1}</div>
-            <img className="avatar" src={d.avatar || ''} alt="" />
-            <div className="name" title={d.user}>{d.user}</div>
-            <div className="coin">{d.total}</div>
-          </div>
-        ))}
-
-        <button className="gear" title="Cambiar usuario de TikTok" onClick={()=>setShowPanel(v=>!v)}>⚙️</button>
-      </div>
-
-      {showPanel && (
-        <div className="sheet" onClick={()=>setShowPanel(false)}>
-          <div className="card" onClick={e=>e.stopPropagation()}>
-            <h3>Conectar a otro usuario</h3>
-            <p>Escribe el <b>usuario de TikTok</b> (sin @) y el backend se reconectará.</p>
-            <div className="field">
-              <span>@</span>
-              <input placeholder="sticx33" value={userInput} onChange={e=>setUserInput(e.target.value)} />
-            </div>
-            <div className="actions">
-              <button onClick={()=>setShowPanel(false)}>Cancelar</button>
-              <button onClick={applyUser}>Conectar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {modal && (
-        <div className="winner">
-          <div className="win-card">
-            <div className="trophy">🏆</div>
-            <div className="win-title">¡GANADOR!</div>
-            <div className="win-name">{modal.user}</div>
-            <div className="win-coins">
-              <span className="dot"></span><b>{modal.total}</b>&nbsp;diamantes
-            </div>
-            <div className="win-footer">¡Felicidades! 🎉</div>
-            <button className="win-close" onClick={()=>setModal(null)}>Cerrar</button>
-          </div>
-        </div>
-      )}
-    </>
-  )
+/* ----------------------------------------------------------
+   LICENSE GATE (Canjear código)
+---------------------------------------------------------- */
+.gate{
+  position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+  background: radial-gradient(120% 120% at 50% 0%, #121826, #0b0f16 70%);
+  padding:24px; color:#e7ecf3;
 }
-
-/* ======================= ROOM WIZARD (crear sala) ======================= */
-function RoomWizard() {
-  const [room, setRoom] = useState(randomRoom())
-  const [ws, setWs] = useState('https://tiklive-63mk.onrender.com')
-  const [top, setTop] = useState(3)
-  const [user, setUser] = useState('')
-
-  const makeUrl = () => {
-    const p = new URLSearchParams()
-    p.set('ws', ws.replace(/\/+$/, ''))
-    p.set('room', room.trim())
-    p.set('top', String(top))
-    const key = localStorage.getItem('LIC_KEY')
-    if (key) p.set('key', key) // propagar licencia si cambian de equipo
-    if (user.trim()) p.set('autouser', user.replace(/^@+/, '').trim())
-    return `${location.origin}/?${p.toString()}`
-  }
-
-  const openOverlay = () => { location.href = makeUrl() }
-  const copyLink = async () => {
-    const link = makeUrl()
-    try { await navigator.clipboard.writeText(link); alert('Link copiado:\n'+link) }
-    catch { prompt('Copia el link:', link) }
-  }
-
-  return (
-    <div className="wizard">
-      <div className="w-card">
-        <h2>Crear mi sala de subasta</h2>
-
-        <div className="w-field">
-          <label>Nombre de sala (room)</label>
-          <div className="w-row">
-            <input value={room} onChange={e=>setRoom(e.target.value)} placeholder="miSala123" />
-            <button className="w-btn" onClick={()=>setRoom(randomRoom())}>Aleatorio</button>
-          </div>
-        </div>
-
-        <div className="w-field">
-          <label>Backend (Render)</label>
-          <input value={ws} onChange={e=>setWs(e.target.value)} placeholder="https://tu-backend.onrender.com" />
-        </div>
-
-        <div className="w-field">
-          <label>Top a mostrar</label>
-          <select value={top} onChange={e=>setTop(Number(e.target.value))}>
-            <option value={1}>Top 1</option>
-            <option value={3}>Top 3</option>
-            <option value={5}>Top 5</option>
-          </select>
-        </div>
-
-        <div className="w-field">
-          <label>Usuario de TikTok (opcional, sin @)</label>
-          <input value={user} onChange={e=>setUser(e.target.value)} placeholder="sticx33" />
-        </div>
-
-        <div className="w-actions">
-          <button className="w-primary" onClick={openOverlay}>Abrir overlay</button>
-          <button className="w-success" onClick={copyLink}>Copiar link</button>
-        </div>
-
-        <div className="w-hint">Pega el link en <b>Browser Source</b> de TikTok LIVE Studio.</div>
-      </div>
-    </div>
-  )
+.g-card{
+  width:min(92vw, 560px);
+  background:#0f1625e6; backdrop-filter: blur(16px);
+  border:1px solid rgba(255,255,255,.12); border-radius:16px;
+  padding:22px; box-shadow:0 24px 60px rgba(0,0,0,.55);
 }
+.g-title{ font-size:22px; font-weight:900; margin-bottom:12px }
+.g-field input{
+  width:100%; background:#182132; color:#fff; border:1px solid rgba(255,255,255,.12);
+  border-radius:10px; padding:12px 12px; outline:none;
+}
+.g-actions{ display:flex; gap:10px; margin-top:14px }
+.g-primary{ background:#2b6aff; color:#fff; border:0; padding:12px 14px; border-radius:10px; cursor:pointer; font-weight:800 }
+.g-ghost{ background:transparent; color:#fff; border:1px solid rgba(255,255,255,.22); padding:12px 14px; border-radius:10px; cursor:pointer; font-weight:700 }
+.g-msg{ color:#ffb84d; margin-top:8px }
+.g-hint{ opacity:.85; margin-top:10px; font-size:14px }
 
-function randomRoom(){ return 'room-' + Math.random().toString(36).slice(2,7) }
+/* ----------------------------------------------------------
+   ROOM WIZARD & ADMIN PANEL
+---------------------------------------------------------- */
+.wizard{
+  position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+  padding:24px; background: radial-gradient(120% 120% at 50% 0%, #121826, #0b0f16 70%);
+}
+.w-card{
+  width:min(92vw, 760px); background:#0f1625e6; backdrop-filter: blur(16px);
+  color:#e7ecf3; border:1px solid rgba(255,255,255,.12);
+  border-radius:16px; padding:22px; box-shadow:0 24px 60px rgba(0,0,0,.55);
+}
+.w-card h2{ margin:0 0 12px 0; font-weight:900; font-size:28px; letter-spacing:.3px }
+.w-field{ margin:14px 0 }
+.w-field label{ display:block; font-size:14px; opacity:.9; margin-bottom:8px }
+.w-field input,.w-field select{
+  width:100%; background:#182132; color:#fff; border:1px solid rgba(255,255,255,.12);
+  border-radius:10px; padding:12px 12px; outline:none;
+}
+.w-row{ display:flex; gap:10px }
+.w-row input{ flex:1 }
+.w-btn{ background:#2b6aff; color:#fff; border:0; padding:12px 14px; border-radius:10px; cursor:pointer; font-weight:700 }
+.w-actions{ display:flex; gap:10px; margin-top:16px }
+.w-primary{ background:#2b6aff; color:#fff; border:0; padding:14px 16px; border-radius:12px; cursor:pointer; font-weight:800 }
+.w-success{ background:#1f9d55; color:#fff; border:0; padding:14px 16px; border-radius:12px; cursor:pointer; font-weight:800 }
+.w-hint{ opacity:.85; margin-top:12px; font-size:14px }
+.keys{ display:flex; flex-direction:column; gap:8px }
+.keyrow{ display:flex; gap:10px; align-items:center }
+.keytxt{ background:#0c1220; padding:8px 10px; border-radius:8px; border:1px solid rgba(255,255,255,.08) }
