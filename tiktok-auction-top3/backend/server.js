@@ -5,21 +5,28 @@ import http from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import { WebcastPushConnection } from 'tiktok-live-connector';
+import jwt from 'jsonwebtoken'; // ← NUEVO: licencias
 
 const PORT = process.env.PORT || 3000;
 
-// Orígenes permitidos (ajusta el dominio de tu Vercel)
+/* ===== Orígenes permitidos (ajusta el dominio de tu Vercel) ===== */
 const ORIGINS = [
   'https://tiklive-6ywqave4w-pancachogods-projects.vercel.app',
   /\.vercel\.app$/,
   'http://localhost:5173',
 ];
 
+/* ===== Variables para licencias y Telegram (NUEVO) ===== */
+const LICENSE_SECRET = process.env.LICENSE_SECRET || 'change_me_please';
+const ADMIN_KEY      = process.env.ADMIN_KEY      || 'superadmin';
+const TELEGRAM_URL   = process.env.TELEGRAM_URL   || 'https://t.me/+ae-ctGPi8sM1MTYx';
+
+/* ===== App / IO ===== */
 const app = express();
 app.use(cors({
   origin: ORIGINS,
   methods: ['GET','POST','OPTIONS'],
-  allowedHeaders: ['Content-Type'],
+  allowedHeaders: ['Content-Type','x-admin-key'], // ← permitir header admin
 }));
 app.use(express.json());
 
@@ -204,8 +211,6 @@ app.get('/:room/status', (req, res) => {
   res.json({ room: r.id, user: r.user, running: isRunning(r), endsAt: r.auction.endsAt, donors: r.donors.size, topSize: r.auction.top.length });
 });
 
-app.get('/health', (_req, res) => res.send('ok'));
-
 // Simular donación (respeta ventana de tiempo)
 app.post('/:room/debug/gift', (req, res) => {
   const r = getRoom(String(req.params.room || '').trim());
@@ -220,6 +225,53 @@ app.post('/:room/debug/gift', (req, res) => {
   res.json({ ok: true, top: r.auction.top });
 });
 
+/* ============ LICENCIAS (JWT) ============ */
+// Genera key válida por X meses (≈ 30 días/mes)
+function issueKey(months = 1) {
+  const nowS = Math.floor(Date.now() / 1000);
+  const expS = nowS + Math.floor(30 * 24 * 60 * 60 * months);
+  const payload = { k: Math.random().toString(36).slice(2, 10) }; // id aleatoria
+  const token = jwt.sign(payload, LICENSE_SECRET, { algorithm: 'HS256', expiresIn: expS - nowS });
+  return { key: token, expiresAt: expS * 1000 };
+}
+function verifyKey(key) {
+  try {
+    const decoded = jwt.verify(key, LICENSE_SECRET);
+    return { ok: true, decoded };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+// Redirige a tu canal de Telegram (Obtener membresía)
+app.get('/license/telegram', (_req, res) => {
+  try { res.redirect(TELEGRAM_URL); }
+  catch { res.status(302).redirect('https://t.me/+ae-ctGPi8sM1MTYx'); }
+});
+
+// Verificar/canjear key (público)
+app.post('/license/verify', (req, res) => {
+  const key = String(req.body?.key || '').trim();
+  if (!key) return res.status(400).json({ ok: false, error: 'key-required' });
+  const v = verifyKey(key);
+  if (!v.ok) return res.status(401).json({ ok: false, error: 'invalid-or-expired' });
+  const dec = jwt.decode(key);
+  const exp = dec?.exp ? dec.exp * 1000 : null;
+  res.json({ ok: true, expiresAt: exp });
+});
+
+// Generar keys (solo admin)
+app.post('/admin/license/create', (req, res) => {
+  const ak = req.header('x-admin-key');
+  if (ak !== ADMIN_KEY) return res.status(401).json({ ok: false, error: 'unauthorized' });
+
+  const months = Math.max(1, Number(req.body?.months || 1));
+  const count  = Math.min(100, Math.max(1, Number(req.body?.count || 1)));
+  const keys = [];
+  for (let i = 0; i < count; i++) keys.push(issueKey(months));
+  res.json({ ok: true, months, count, keys });
+});
+
 /* ============ SOCKET.IO (join por room) ============ */
 io.on('connection', (socket) => {
   const roomId = String((socket.handshake?.query?.room || '')).trim();
@@ -230,4 +282,8 @@ io.on('connection', (socket) => {
   socket.emit('state', r.auction);
 });
 
+/* ============ HEALTH ============ */
+app.get('/health', (_req, res) => res.send('ok'));
+
+/* ============ START ============ */
 server.listen(PORT, () => console.log('Backend on :' + PORT));
