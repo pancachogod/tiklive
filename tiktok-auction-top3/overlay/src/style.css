@@ -1,4 +1,19 @@
-/* ============== PANEL (contador arriba-centrado) ============== */
+/* ----------------------------------------------------------
+   FONTS/RESET SUAVE
+---------------------------------------------------------- */
+:root{ color-scheme: dark; }
+*{ box-sizing:border-box; }
+html,body,#root{ height:100%; }
+body{
+  margin:0;
+  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  background: radial-gradient(160% 140% at 50% -30%, #182132, #0e121b);
+  color:#fff;
+}
+
+/* ----------------------------------------------------------
+   OVERLAY: CONTADOR + TOP (estilo foto)
+---------------------------------------------------------- */
 .panel{
   position: fixed;
   top: 40px;
@@ -7,25 +22,24 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 22px;                 /* separa el contador del Top */
+  gap: 22px;
   z-index: 20;
-  font-family: "Inter", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
 }
 
-/* ===================== CONTADOR (estilo foto) ===================== */
+/* Contador estilo foto */
 .timer{
   position: relative;
   display: inline-block;
-  padding: 36px 72px;       /* tamaño del bloque */
+  padding: 36px 72px;
   border-radius: 28px;
-  background: #343a40;      /* caja exterior gris oscuro */
+  background: #343a40;
   box-shadow:
     0 14px 28px rgba(0,0,0,.35),
     inset 0 0 0 2px rgba(0,0,0,.15);
   color: #ff3b32;
   font-family: "Digital-7","DS-Digital","Orbitron", ui-sans-serif, system-ui;
   font-weight: 900;
-  font-size: 110px;         /* tamaño de dígitos */
+  font-size: 110px;
   letter-spacing: 6px;
   line-height: 1;
   text-shadow:
@@ -34,7 +48,7 @@
 }
 .timer::before{
   content: "";
-  position: absolute; inset: 12px;       /* borde interior */
+  position: absolute; inset: 12px;
   border-radius: 22px;
   background:
     radial-gradient(120% 80% at 50% 25%, #000000b0 15%, #7a1e24 55%, #2a0f12 100%);
@@ -44,121 +58,87 @@
   z-index: -1;
 }
 
-/* ================== BOTÓN ⚙️ (fuera del contador) ================== */
+/* Botón engranaje (fuera del contador) */
 .gear{
   position: fixed;
-  top: 12px;
-  left: 12px;
-  background: rgba(255,255,255,.1);
-  border: 1px solid rgba(255,255,255,.18);
-  color: #fff;
-  border-radius: 12px;
-  padding: 8px 12px;
-  cursor: pointer;
-  font-size: 22px;
-  z-index: 9999;
-  transition: background .2s ease;
+  top: 12px; left: 12px;
+  background: rgba(255,255,255,.12);
+  border:1px solid rgba(255,255,255,.22);
+  color:#fff;
+  border-radius:12px;
+  padding:8px 12px;
+  cursor:pointer;
+  font-size:22px;
+  z-index:9999;
+  transition: background .2s ease, transform .1s ease;
 }
-.gear:hover{ background: rgba(255,255,255,.22); }
+.gear:hover{ background:rgba(255,255,255,.22); transform: translateY(-1px); }
 
-/* ===================== TOP DONADORES (estilo foto) ===================== */
-/* Tarjeta grande tipo cápsula */
+/* Tarjeta de Top grande */
 .row{
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  padding: 18px 24px;
-  min-width: 760px;                      /* ancho visible grande */
+  display:flex; align-items:center; gap:18px;
+  padding:18px 24px;
+  min-width:760px;
   background: linear-gradient(180deg, #2f3640, #313949);
-  border-radius: 34px;
-  box-shadow:
-    0 10px 24px rgba(0,0,0,.35),
-    inset 0 0 0 1px rgba(255,255,255,.06);
+  border-radius:34px;
+  box-shadow: 0 10px 24px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.06);
 }
-
-/* Medalla del puesto */
 .badge{
-  width: 96px; height: 96px; flex: 0 0 96px;
-  display: flex; align-items: center; justify-content: center;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at 30% 30%, #fff6, #0000),
-    linear-gradient(180deg, #ffd84a, #d9a400);
-  color: #111; font-weight: 900; font-size: 44px;
-  box-shadow:
-    inset 0 0 0 3px rgba(0,0,0,.15),
-    0 4px 10px rgba(0,0,0,.35);
+  width:96px; height:96px; flex:0 0 96px;
+  display:flex; align-items:center; justify-content:center;
+  border-radius:50%;
+  background: radial-gradient(circle at 30% 30%, #fff6, #0000),
+             linear-gradient(180deg, #ffd84a, #d9a400);
+  color:#111; font-weight:900; font-size:44px;
+  box-shadow: inset 0 0 0 3px rgba(0,0,0,.15), 0 4px 10px rgba(0,0,0,.35);
 }
 .badge.silver{
-  background:
-    radial-gradient(circle at 30% 30%, #fff6, #0000),
-    linear-gradient(180deg, #dfe3ea, #aeb6c4);
+  background: radial-gradient(circle at 30% 30%, #fff6, #0000),
+             linear-gradient(180deg, #dfe3ea, #aeb6c4);
 }
 .badge.bronze{
-  background:
-    radial-gradient(circle at 30% 30%, #fff6, #0000),
-    linear-gradient(180deg, #e8a56a, #b46a2b);
+  background: radial-gradient(circle at 30% 30%, #fff6, #0000),
+             linear-gradient(180deg, #e8a56a, #b46a2b);
 }
-
-/* Avatar circular grande */
 .avatar{
-  width: 100px; height: 100px; flex: 0 0 100px;
-  border-radius: 50%; object-fit: cover;
-  box-shadow:
-    0 2px 8px rgba(0,0,0,.35),
-    inset 0 0 0 3px rgba(255,255,255,.12);
+  width:100px; height:100px; flex:0 0 100px;
+  border-radius:50%; object-fit:cover;
+  box-shadow: 0 2px 8px rgba(0,0,0,.35), inset 0 0 0 3px rgba(255,255,255,.12);
 }
-
-/* Nombre (muy grande y con sombra suave) */
 .name{
-  flex: 1;
-  color: #fff;
-  font-weight: 800;
-  font-size: 56px;
-  letter-spacing: .5px;
+  flex:1; color:#fff; font-weight:800; font-size:56px; letter-spacing:.5px;
   text-shadow: 0 2px 4px rgba(0,0,0,.35);
-  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  overflow:hidden; white-space:nowrap; text-overflow:ellipsis;
 }
-
-/* Moneda/Diamantes a la derecha */
 .coin{
-  display: flex; align-items: center; gap: 16px;
-  color: #fff; font-weight: 900; font-size: 54px;
-  min-width: 120px; justify-content: flex-end;
+  display:flex; align-items:center; gap:16px;
+  color:#fff; font-weight:900; font-size:54px; min-width:120px; justify-content:flex-end;
 }
 .coin::before{
-  content: "";
-  width: 44px; height: 44px; border-radius: 50%;
-  background:
-    radial-gradient(circle at 30% 30%, #fff8, #0000),
-    linear-gradient(180deg, #ffd84a, #d9a400);
+  content:"";
+  width:44px; height:44px; border-radius:50%;
+  background: radial-gradient(circle at 30% 30%, #fff8, #0000),
+             linear-gradient(180deg, #ffd84a, #d9a400);
   box-shadow: inset 0 0 0 2px rgba(0,0,0,.25);
 }
 
-/* ===================== SHEET / MODAL (si los usas) ===================== */
-.sheet{
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,.4);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 9998;
-}
+/* ----------------------------------------------------------
+   PANEL CAMBIO DE USUARIO + MODAL GANADOR (si los usas)
+---------------------------------------------------------- */
+.sheet{ position:fixed; inset:0; background:rgba(0,0,0,.4); display:flex; align-items:center; justify-content:center; z-index:9998 }
 .card{
-  width: min(92vw, 420px);
-  background: #111a; backdrop-filter: blur(14px);
-  color: #fff;
-  border: 1px solid rgba(255,255,255,.15);
-  border-radius: 16px;
-  padding: 18px;
+  width:min(92vw,420px);
+  background:#111a; backdrop-filter:blur(14px);
+  color:#fff; border:1px solid rgba(255,255,255,.15); border-radius:16px; padding:18px;
 }
-.card h3{ margin: 0 0 8px 0 }
-.field{ display:flex; gap:6px; align-items:center; background:#1b2232; border:1px solid rgba(255,255,255,.1); border-radius:10px; padding:8px 10px; }
+.card h3{ margin:0 0 8px 0 }
+.field{ display:flex; gap:6px; align-items:center; background:#1b2232; border:1px solid rgba(255,255,255,.1); border-radius:10px; padding:8px 10px }
 .field span{ opacity:.7 }
 .field input{ background:transparent; border:0; outline:none; color:#fff; width:100% }
 .actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:12px }
 .actions button{ background:#222; border:1px solid rgba(255,255,255,.15); color:#fff; padding:8px 12px; border-radius:10px; cursor:pointer }
 .actions button:last-child{ background:#2b6aff; border-color:#2b6aff }
 
-/* Modal GANADOR (opcional) */
 .winner{ position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.4); z-index:9997 }
 .win-card{ width:min(92vw,420px); background:#ffdf3b; color:#111; border-radius:18px; padding:18px; box-shadow:0 10px 30px rgba(0,0,0,.35); text-align:center; border:2px solid #f3c300 }
 .trophy{ font-size:40px; margin-bottom:6px }
@@ -168,3 +148,44 @@
 .win-coins .dot{ width:14px; height:14px; border-radius:50%; background: radial-gradient(circle at 30% 30%, #fff9, #0000), linear-gradient(180deg,#ffe07a,#d8a41d); border:1px solid rgba(0,0,0,.25) }
 .win-footer{ margin-top:12px; font-weight:700 }
 .win-close{ margin-top:12px; background:#111; color:#fff; border:0; padding:8px 12px; border-radius:10px; cursor:pointer }
+
+/* ----------------------------------------------------------
+   ROOM WIZARD (pantalla inicial con estilo)
+---------------------------------------------------------- */
+.wizard{
+  position:fixed; inset:0;
+  display:flex; align-items:center; justify-content:center;
+  padding:24px;
+  background: radial-gradient(120% 120% at 50% 0%, #121826, #0b0f16 70%);
+}
+.w-card{
+  width:min(92vw, 760px);
+  background:#0f1625e6;
+  backdrop-filter: blur(16px);
+  color:#e7ecf3;
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:16px;
+  padding:22px;
+  box-shadow: 0 24px 60px rgba(0,0,0,.55);
+}
+.w-card h2{
+  margin:0 0 12px 0; font-weight:900; font-size:28px; letter-spacing:.3px;
+}
+.w-field{ margin:14px 0 }
+.w-field label{ display:block; font-size:14px; opacity:.9; margin-bottom:8px }
+.w-field input, .w-field select{
+  width:100%;
+  background:#182132; color:#fff;
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:10px; padding:12px 12px; outline:none;
+}
+.w-field select{ cursor:pointer }
+.w-row{ display:flex; gap:10px }
+.w-row input{ flex:1 }
+.w-btn{
+  background:#2b6aff; color:#fff; border:0; padding:12px 14px; border-radius:10px; cursor:pointer; font-weight:700;
+}
+.w-actions{ display:flex; gap:10px; margin-top:16px }
+.w-primary{ background:#2b6aff; color:#fff; border:0; padding:14px 16px; border-radius:12px; cursor:pointer; font-weight:800 }
+.w-success{ background:#1f9d55; color:#fff; border:0; padding:14px 16px; border-radius:12px; cursor:pointer; font-weight:800 }
+.w-hint{ opacity:.85; margin-top:12px; font-size:14px }
