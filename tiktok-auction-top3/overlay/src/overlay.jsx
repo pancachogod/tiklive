@@ -29,7 +29,9 @@ function LicenseGate({ children }) {
   const q = new URLSearchParams(location.search)
   const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || 'http://localhost:3000'
   const WS = RAW_WS.replace(/\/+$/, '')
-  const telURL = `${WS}/license/telegram` // abre tu canal de Telegram (Render env)
+
+  // Enlace directo a tu canal:
+  const TELEGRAM = 'https://t.me/+ae-ctGPi8sM1MTYx'
 
   const [checking, setChecking] = useState(true)
   const [ok, setOk] = useState(false)
@@ -41,8 +43,7 @@ function LicenseGate({ children }) {
       const k = (q.get('key') || localStorage.getItem('LIC_KEY') || '').trim()
       if (!k) { setChecking(false); setOk(false); return }
       const r = await verifyKey(WS, k)
-      if (r.ok) { localStorage.setItem('LIC_KEY', k); setOk(true) }
-      else { setOk(false) }
+      if (r.ok) { localStorage.setItem('LIC_KEY', k); setOk(true) } else { setOk(false) }
       setChecking(false)
     })()
   }, [WS])
@@ -64,7 +65,8 @@ function LicenseGate({ children }) {
     if (r.ok) { localStorage.setItem('LIC_KEY', k); setOk(true) }
     else setMsg('Código inválido o vencido.')
   }
-  const getMembership = () => window.open(telURL, '_blank')
+
+  const getMembership = () => window.open(TELEGRAM, '_blank')
 
   return (
     <div className="gate">
@@ -84,18 +86,6 @@ function LicenseGate({ children }) {
   )
 }
 
-async function verifyKey(WS, key) {
-  try {
-    const res = await fetch(`${WS}/license/verify`, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ key })
-    })
-    return await res.json()
-  } catch {
-    return { ok:false, error:'network' }
-  }
-}
 
 /* ======================= ADMIN PANEL ======================= */
 function AdminPanel() {
