@@ -2,19 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
 import './style.css'
 
-/* ============================================================
-   APP: Gate de licencia → (Admin? Gate? Wizard u Overlay)
-============================================================ */
-export default function App() {
-  const q = new URLSearchParams(location.search)
-  const admin = q.get('admin') === '1'
-  if (admin) return <AdminPanel />
-  return (
-    <LicenseGate>
-      <Decider />
-    </LicenseGate>
-  )
-}
 
 /* Decide si mostrar Room Wizard o Overlay */
 function Decider() {
@@ -24,28 +11,57 @@ function Decider() {
   return <AuctionOverlay />
 }
 
-/* ======================= LICENSE GATE ======================= */
+// --- Helpers comunes (colócalos arriba del componente Overlay si no los tienes) ---
+function sanitizeBaseUrl(u) {
+  // quita espacios y barras finales repetidas
+  return String(u || '').trim().replace(/\/+$/, '')
+}
+
+async function postJSON(url, body) {
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body ?? {}),
+  })
+  // Si hay 204 no content, evita .json()
+  const text = await r.text()
+  const data = text ? JSON.parse(text) : {}
+  return { ok: r.ok, status: r.status, data }
+}
+
+// --- LicenseGate: BLOQUE COMPLETO PARA COPIAR/PEGAR ---
 function LicenseGate({ children }) {
   const q = new URLSearchParams(location.search)
   const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || 'http://localhost:3000'
-  const WS = RAW_WS.replace(/\/+$/, '')
+  const WS = sanitizeBaseUrl(RAW_WS)
 
-  // Enlace directo a tu canal:
-  const TELEGRAM = 'https://t.me/+ae-ctGPi8sM1MTYx'
+  const [checking, setChecking] = React.useState(true)
+  const [ok, setOk] = React.useState(false)
+  const [key, setKey] = React.useState(q.get('key') || localStorage.getItem('LIC_KEY') || '')
+  const [msg, setMsg] = React.useState('')
+  const [busy, setBusy] = React.useState(false)
 
-  const [checking, setChecking] = useState(true)
-  const [ok, setOk] = useState(false)
-  const [key, setKey] = useState(q.get('key') || localStorage.getItem('LIC_KEY') || '')
-  const [msg, setMsg] = useState('')
-
-  useEffect(() => {
+  // Verificación automática si ya hay key guardada o viene por query
+  React.useEffect(() => {
     (async () => {
       const k = (q.get('key') || localStorage.getItem('LIC_KEY') || '').trim()
       if (!k) { setChecking(false); setOk(false); return }
-      const r = await verifyKey(WS, k)
-      if (r.ok) { localStorage.setItem('LIC_KEY', k); setOk(true) } else { setOk(false) }
-      setChecking(false)
+      try {
+        const { ok: httpOK, data } = await postJSON(`${WS}/license/verify`, { key: k })
+        if (httpOK && data?.ok) {
+          localStorage.setItem('LIC_KEY', k)
+          setOk(true)
+        } else {
+          setOk(false)
+        }
+      } catch (e) {
+        console.error('auto verify error', e)
+        setOk(false)
+      } finally {
+        setChecking(false)
+      }
     })()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [WS])
 
   if (checking) {
@@ -57,34 +73,66 @@ function LicenseGate({ children }) {
   }
   if (ok) return children
 
-  const redeem = async () => {
+  const redeem = async (e) => {
+    e?.preventDefault?.()
     setMsg('')
     const k = key.trim()
     if (!k) { setMsg('Ingresa tu código.'); return }
-    const r = await verifyKey(WS, k)
-    if (r.ok) { localStorage.setItem('LIC_KEY', k); setOk(true) }
-    else setMsg('Código inválido o vencido.')
+
+    setBusy(true)
+    try {
+      const { ok: httpOK, data } = await postJSON(`${WS}/license/verify`, { key: k })
+      // Esperamos { ok:true, expiresAt? } desde el backend
+      if (httpOK && data?.ok) {
+        localStorage.setItem('LIC_KEY', k)
+        setOk(true)
+      } else {
+        setMsg('Código inválido o vencido.')
+      }
+    } catch (err) {
+      console.error('redeem error', err)
+      setMsg('No se pudo contactar con el servidor.')
+    } finally {
+      setBusy(false)
+    }
   }
 
-  const getMembership = () => window.open(TELEGRAM, '_blank')
+  const goTelegram = () => window.open('https://t.me/+ae-ctGPi8sM1MTYx', '_blank')
 
   return (
     <div className="gate">
-      <div className="g-card">
+      <form className="g-card" onSubmit={redeem}>
         <div className="g-title">Canjear código</div>
+
         <div className="g-field">
-          <input value={key} onChange={e=>setKey(e.target.value)} placeholder="Pega tu código aquí" />
+          <input
+            value={key}
+            onChange={e=>setKey(e.target.value)}
+            placeholder="Pega tu código aquí"
+            disabled={busy}
+          />
         </div>
+
         {msg && <div className="g-msg">{msg}</div>}
+
         <div className="g-actions">
-          <button className="g-primary" onClick={redeem}>Canjear</button>
-          <button className="g-ghost" onClick={getMembership}>Obtener membresía</button>
+          <button className="g-primary" type="submit" disabled={busy}>
+            {busy ? 'Validando…' : 'Canjear'}
+          </button>
+          <button type="button" className="g-ghost" onClick={goTelegram} disabled={busy}>
+            Obtener membresía
+          </button>
         </div>
+
         <div className="g-hint">¿No tienes un código? Pulsa “Obtener membresía”.</div>
-      </div>
+        <div className="g-hint" style={{opacity:.7, fontSize:12}}>
+          Backend: {WS}
+        </div>
+      </form>
     </div>
   )
 }
+
 
 
 /* ======================= ADMIN PANEL ======================= */
