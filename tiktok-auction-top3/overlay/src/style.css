@@ -1,4 +1,4 @@
-/* === CONTADOR (arriba centrado, mismo estilo original) === */
+/* === CONTADOR (arriba centrado, grande, mismo estilo original) === */
 .panel {
   position: fixed;
   top: 40px;
@@ -46,19 +46,23 @@
   z-index: -1;
 }
 
-/* === BOTÓN ⚙️ CONFIG (arriba izquierda, fuera del contador) === */
+/* === BOTÓN ⚙️ CONFIG (esquina superior izquierda, fuera del contador) === */
 .gear {
   position: fixed;
-  top: 20px;
-  left: 20px;
-  background: rgba(255, 255, 255, 0.08);
+  top: 12px;
+  left: 12px;
+  background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.15);
   color: #fff;
   border-radius: 12px;
   padding: 8px 12px;
   cursor: pointer;
-  font-size: 20px;
+  font-size: 22px;
   z-index: 9999;
+  transition: background 0.2s ease;
+}
+.gear:hover {
+  background: rgba(255, 255, 255, 0.2);
 }
 
 /* === TOP 3 DE DONADORES === */
