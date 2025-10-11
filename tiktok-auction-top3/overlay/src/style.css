@@ -1,28 +1,30 @@
-/* === CONTADOR (exacto al diseño de tu imagen) === */
+/* === CONTADOR (centrado, grande, mismo estilo original) === */
 .panel {
-  position: absolute;
-  top: 24px;
-  right: 24px;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 10px;
+  z-index: 20;
 }
 
 .timer {
   display: inline-block;
-  padding: 18px 28px;
-  border-radius: 24px;
+  padding: 28px 48px;
+  border-radius: 28px;
   background: #2f3640;
   box-shadow:
     0 8px 18px rgba(0, 0, 0, 0.35),
     inset 0 0 0 2px rgba(0, 0, 0, 0.15);
   position: relative;
   font-family: "Digital-7", "DS-Digital", "Orbitron", ui-sans-serif, system-ui;
-  font-size: 56px;
+  font-size: 100px;
   font-weight: 900;
   color: #ff3b32;
-  letter-spacing: 2px;
+  letter-spacing: 4px;
   text-shadow:
     0 0 10px rgba(255, 58, 50, 0.85),
     0 0 20px rgba(255, 58, 50, 0.55);
@@ -30,8 +32,8 @@
 .timer::before {
   content: "";
   position: absolute;
-  inset: 10px;
-  border-radius: 18px;
+  inset: 14px;
+  border-radius: 22px;
   background: radial-gradient(
     120% 80% at 50% 30%,
     #000000aa 10%,
@@ -95,18 +97,19 @@
   text-align: right;
 }
 
-/* === BOTÓN ⚙️ CONFIG === */
+/* === BOTÓN ⚙️ CONFIG (arriba izquierda) === */
 .gear {
-  position: absolute;
-  right: 12px;
-  bottom: 12px;
+  position: fixed;
+  top: 12px;
+  left: 12px;
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.15);
   color: #fff;
   border-radius: 12px;
   padding: 6px 10px;
   cursor: pointer;
-  font-size: 18px;
+  font-size: 20px;
+  z-index: 9999;
 }
 
 /* === PANEL PARA CAMBIAR USUARIO === */
@@ -117,7 +120,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 9999;
+  z-index: 9998;
 }
 .card {
   width: min(92vw, 420px);
@@ -177,7 +180,7 @@
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.4);
-  z-index: 9998;
+  z-index: 9997;
 }
 .win-card {
   width: min(92vw, 420px);
