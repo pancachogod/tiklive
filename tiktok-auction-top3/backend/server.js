@@ -5,7 +5,9 @@ import http from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import { WebcastPushConnection } from 'tiktok-live-connector';
-import jwt from 'jsonwebtoken'; // ← NUEVO: licencias
+import jwt from 'jsonwebtoken';
+import crypto from 'crypto';          // ⬅️ añade solo este si aún no está
+// ← NUEVO: licencias
 
 const PORT = process.env.PORT || 3000;
 
@@ -225,14 +227,7 @@ app.post('/:room/debug/gift', (req, res) => {
   res.json({ ok: true, top: r.auction.top });
 });
 
-// backend/server.js
-import 'dotenv/config';
-import express from 'express';
-import http from 'http';
-import { Server } from 'socket.io';
-import cors from 'cors';
-import { WebcastPushConnection } from 'tiktok-live-connector';
-import jwt from 'jsonwebtoken'; // ← NUEVO: licencias
+
 
 const PORT = process.env.PORT || 3000;
 
