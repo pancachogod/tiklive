@@ -1,11 +1,11 @@
-/* Botón de engranaje */
+/* Botón de engranaje (config) */
 .gear{
   position:absolute; right:12px; bottom:12px;
   background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.15);
   color:#fff; border-radius:12px; padding:6px 10px; cursor:pointer;
 }
 
-/* Panel a pantalla completa para cambiar usuario */
+/* Sheet para cambiar usuario */
 .sheet{
   position:fixed; inset:0; background:rgba(0,0,0,.4); display:flex; align-items:center; justify-content:center;
   z-index:9999;
@@ -28,7 +28,7 @@
 }
 .actions button:last-child{ background:#2b6aff; border-color:#2b6aff; }
 
-/* Modal GANADOR */
+/* Modal de ganador */
 .winner{
   position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
   background:rgba(0,0,0,.4); z-index:9998;
