@@ -1,14 +1,14 @@
 /* ----------------------------------------------------------
-   FONTS/RESET SUAVE
+   BASE / RESET
 ---------------------------------------------------------- */
-:root{ color-scheme: dark; }
-*{ box-sizing:border-box; }
-html,body,#root{ height:100%; }
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
 body{
-  margin:0;
+  margin: 0;
   font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   background: radial-gradient(160% 140% at 50% -30%, #182132, #0e121b);
-  color:#fff;
+  color: #fff;
 }
 
 /* ----------------------------------------------------------
@@ -26,7 +26,7 @@ body{
   z-index: 20;
 }
 
-/* Contador estilo foto */
+/* Contador grande */
 .timer{
   position: relative;
   display: inline-block;
@@ -58,33 +58,33 @@ body{
   z-index: -1;
 }
 
-/* Botón engranaje (fuera del contador) */
+/* Engranaje fuera del contador (arriba-izquierda) */
 .gear{
   position: fixed;
   top: 12px; left: 12px;
   background: rgba(255,255,255,.12);
-  border:1px solid rgba(255,255,255,.22);
-  color:#fff;
-  border-radius:12px;
-  padding:8px 12px;
-  cursor:pointer;
-  font-size:22px;
-  z-index:9999;
+  border: 1px solid rgba(255,255,255,.22);
+  color: #fff;
+  border-radius: 12px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 22px;
+  z-index: 9999;
   transition: background .2s ease, transform .1s ease;
 }
-.gear:hover{ background:rgba(255,255,255,.22); transform: translateY(-1px); }
+.gear:hover{ background: rgba(255,255,255,.22); transform: translateY(-1px); }
 
-/* Tarjeta de Top grande */
+/* Tarjeta Top donadores (estilo imagen) */
 .row{
-  display:flex; align-items:center; gap:18px;
-  padding:18px 24px;
-  min-width:760px;
+  display: flex; align-items: center; gap: 18px;
+  padding: 18px 24px;
+  min-width: 760px;
   background: linear-gradient(180deg, #2f3640, #313949);
-  border-radius:34px;
+  border-radius: 34px;
   box-shadow: 0 10px 24px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.06);
 }
 .badge{
-  width:96px; height:96px; flex:0 0 96px;
+  width: 96px; height: 96px; flex: 0 0 96px;
   display:flex; align-items:center; justify-content:center;
   border-radius:50%;
   background: radial-gradient(circle at 30% 30%, #fff6, #0000),
@@ -123,7 +123,7 @@ body{
 }
 
 /* ----------------------------------------------------------
-   PANEL CAMBIO DE USUARIO + MODAL GANADOR (si los usas)
+   PANEL CAMBIO DE USUARIO + MODAL GANADOR
 ---------------------------------------------------------- */
 .sheet{ position:fixed; inset:0; background:rgba(0,0,0,.4); display:flex; align-items:center; justify-content:center; z-index:9998 }
 .card{
@@ -150,42 +150,56 @@ body{
 .win-close{ margin-top:12px; background:#111; color:#fff; border:0; padding:8px 12px; border-radius:10px; cursor:pointer }
 
 /* ----------------------------------------------------------
-   ROOM WIZARD (pantalla inicial con estilo)
+   LICENSE GATE (Canjear código)
 ---------------------------------------------------------- */
-.wizard{
-  position:fixed; inset:0;
-  display:flex; align-items:center; justify-content:center;
-  padding:24px;
+.gate{
+  position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
   background: radial-gradient(120% 120% at 50% 0%, #121826, #0b0f16 70%);
+  padding:24px; color:#e7ecf3;
 }
-.w-card{
-  width:min(92vw, 760px);
-  background:#0f1625e6;
-  backdrop-filter: blur(16px);
-  color:#e7ecf3;
-  border:1px solid rgba(255,255,255,.12);
-  border-radius:16px;
-  padding:22px;
-  box-shadow: 0 24px 60px rgba(0,0,0,.55);
+.g-card{
+  width:min(92vw, 560px);
+  background:#0f1625e6; backdrop-filter: blur(16px);
+  border:1px solid rgba(255,255,255,.12); border-radius:16px;
+  padding:22px; box-shadow:0 24px 60px rgba(0,0,0,.55);
 }
-.w-card h2{
-  margin:0 0 12px 0; font-weight:900; font-size:28px; letter-spacing:.3px;
-}
-.w-field{ margin:14px 0 }
-.w-field label{ display:block; font-size:14px; opacity:.9; margin-bottom:8px }
-.w-field input, .w-field select{
-  width:100%;
-  background:#182132; color:#fff;
-  border:1px solid rgba(255,255,255,.12);
+.g-title{ font-size:22px; font-weight:900; margin-bottom:12px }
+.g-field input{
+  width:100%; background:#182132; color:#fff; border:1px solid rgba(255,255,255,.12);
   border-radius:10px; padding:12px 12px; outline:none;
 }
-.w-field select{ cursor:pointer }
+.g-actions{ display:flex; gap:10px; margin-top:14px }
+.g-primary{ background:#2b6aff; color:#fff; border:0; padding:12px 14px; border-radius:10px; cursor:pointer; font-weight:800 }
+.g-ghost{ background:transparent; color:#fff; border:1px solid rgba(255,255,255,.22); padding:12px 14px; border-radius:10px; cursor:pointer; font-weight:700 }
+.g-msg{ color:#ffb84d; margin-top:8px }
+.g-hint{ opacity:.85; margin-top:10px; font-size:14px }
+
+/* ----------------------------------------------------------
+   ROOM WIZARD & ADMIN PANEL
+---------------------------------------------------------- */
+.wizard{
+  position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+  padding:24px; background: radial-gradient(120% 120% at 50% 0%, #121826, #0b0f16 70%);
+}
+.w-card{
+  width:min(92vw, 760px); background:#0f1625e6; backdrop-filter: blur(16px);
+  color:#e7ecf3; border:1px solid rgba(255,255,255,.12);
+  border-radius:16px; padding:22px; box-shadow:0 24px 60px rgba(0,0,0,.55);
+}
+.w-card h2{ margin:0 0 12px 0; font-weight:900; font-size:28px; letter-spacing:.3px }
+.w-field{ margin:14px 0 }
+.w-field label{ display:block; font-size:14px; opacity:.9; margin-bottom:8px }
+.w-field input,.w-field select{
+  width:100%; background:#182132; color:#fff; border:1px solid rgba(255,255,255,.12);
+  border-radius:10px; padding:12px 12px; outline:none;
+}
 .w-row{ display:flex; gap:10px }
 .w-row input{ flex:1 }
-.w-btn{
-  background:#2b6aff; color:#fff; border:0; padding:12px 14px; border-radius:10px; cursor:pointer; font-weight:700;
-}
+.w-btn{ background:#2b6aff; color:#fff; border:0; padding:12px 14px; border-radius:10px; cursor:pointer; font-weight:700 }
 .w-actions{ display:flex; gap:10px; margin-top:16px }
 .w-primary{ background:#2b6aff; color:#fff; border:0; padding:14px 16px; border-radius:12px; cursor:pointer; font-weight:800 }
 .w-success{ background:#1f9d55; color:#fff; border:0; padding:14px 16px; border-radius:12px; cursor:pointer; font-weight:800 }
 .w-hint{ opacity:.85; margin-top:12px; font-size:14px }
+.keys{ display:flex; flex-direction:column; gap:8px }
+.keyrow{ display:flex; gap:10px; align-items:center }
+.keytxt{ background:#0c1220; padding:8px 10px; border-radius:8px; border:1px solid rgba(255,255,255,.08) }
