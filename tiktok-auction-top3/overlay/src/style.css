@@ -1,45 +1,56 @@
-:root {
-  --bg: rgba(7,11,24,.8);
-  --card: rgba(20,24,39,.9);
-  --accent: #ff3b3b;
-  --coin: #f4c542;
-  --text: #fff;
+/* Botón de engranaje */
+.gear{
+  position:absolute; right:12px; bottom:12px;
+  background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.15);
+  color:#fff; border-radius:12px; padding:6px 10px; cursor:pointer;
 }
-*{ box-sizing: border-box }
-body{
-  margin:0; font-family: system-ui, Segoe UI, Roboto, sans-serif; color:var(--text);
-  background: transparent;
+
+/* Panel a pantalla completa para cambiar usuario */
+.sheet{
+  position:fixed; inset:0; background:rgba(0,0,0,.4); display:flex; align-items:center; justify-content:center;
+  z-index:9999;
 }
-.panel{
-  position:absolute; right:12px; top:12px; width:340px; border-radius:18px;
-  padding:12px; background: var(--bg); backdrop-filter: blur(10px);
-  border: 1px solid rgba(255,255,255,.08);
+.card{
+  width: min(92vw, 420px);
+  background:#111a; backdrop-filter: blur(14px);
+  color:#fff; border:1px solid rgba(255,255,255,.15); border-radius:16px; padding:18px;
 }
-.timer{
-  height:70px; border-radius:12px; display:flex; align-items:center; justify-content:center;
-  background: radial-gradient(80% 80% at 50% 50%, rgba(255,0,0,.2), rgba(0,0,0,.6));
-  font-weight:800; font-size:34px; letter-spacing: 2px; color: var(--accent);
-  text-shadow: 0 0 8px rgba(255,0,0,.6);
-  margin-bottom: 10px; border:1px solid rgba(255,0,0,.25);
+.card h3{ margin:0 0 8px 0 }
+.field{ display:flex; gap:6px; align-items:center; background:#1b2232; border:1px solid rgba(255,255,255,.1); border-radius:10px; padding:8px 10px; }
+.field span{ opacity:.7 }
+.field input{
+  background:transparent; border:0; outline:none; color:#fff; width:100%;
 }
-.row{ display:flex; align-items:center; gap:10px; background:var(--card);
-  border-radius:14px; padding:10px 12px; margin:8px 0; border:1px solid rgba(255,255,255,.06);
+.actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:12px }
+.actions button{
+  background:#222; border:1px solid rgba(255,255,255,.15);
+  color:#fff; padding:8px 12px; border-radius:10px; cursor:pointer;
 }
-.badge{
-  width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center;
-  background: linear-gradient(180deg, #ffd76a, #e6a700); color:#111; font-weight:800;
-  border: 1px solid rgba(0,0,0,.2);
+.actions button:last-child{ background:#2b6aff; border-color:#2b6aff; }
+
+/* Modal GANADOR */
+.winner{
+  position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+  background:rgba(0,0,0,.4); z-index:9998;
 }
-.badge.silver{ background: linear-gradient(180deg, #e4e8ec, #b7bec8) }
-.badge.bronze{ background: linear-gradient(180deg, #f0c08a, #c9843b) }
-.avatar{
-  width:34px; height:34px; border-radius:50%; background:#222; border:1px solid rgba(255,255,255,.1);
+.win-card{
+  width:min(92vw, 420px);
+  background:#ffdf3b; color:#111; border-radius:18px; padding:18px;
+  box-shadow:0 10px 30px rgba(0,0,0,.35); text-align:center; border:2px solid #f3c300;
 }
-.name{ font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.coin{ margin-left:auto; display:flex; align-items:center; gap:6px; font-weight:800 }
-.coin:before{
-  content:'';
-  width:16px; height:16px; border-radius:50%;
+.trophy{ font-size:40px; margin-bottom:6px }
+.win-title{ font-size:28px; font-weight:900; margin-bottom:6px }
+.win-name{ font-size:22px; font-weight:800; color:#991b1b; margin-bottom:10px }
+.win-coins{
+  display:inline-flex; align-items:center; gap:8px; font-weight:800;
+  background:#ffe97a; border:1px solid #e3b400; padding:8px 12px; border-radius:12px;
+}
+.win-coins .dot{
+  width:14px; height:14px; border-radius:50%;
   background: radial-gradient(circle at 30% 30%, #fff9, #0000), linear-gradient(180deg, #ffe07a, #d8a41d);
   border: 1px solid rgba(0,0,0,.25);
+}
+.win-footer{ margin-top:12px; font-weight:700 }
+.win-close{
+  margin-top:12px; background:#111; color:#fff; border:0; padding:8px 12px; border-radius:10px; cursor:pointer;
 }
