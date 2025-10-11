@@ -1,244 +1,118 @@
-/* === CONTADOR (arriba centrado, grande, mismo estilo original) === */
-.panel {
-  position: fixed;
-  top: 40px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  z-index: 20;
+/* === CONTENEDOR (contador arriba-centro) === */
+.panel{
+  position:fixed; top:40px; left:50%; transform:translateX(-50%);
+  display:flex; flex-direction:column; align-items:center; gap:22px; z-index:20;
+  font-family: "Inter", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
 }
 
-.timer {
-  display: inline-block;
-  padding: 24px 44px;
-  border-radius: 28px;
-  background: #2f3640;
-  box-shadow:
-    0 8px 18px rgba(0, 0, 0, 0.35),
-    inset 0 0 0 2px rgba(0, 0, 0, 0.15);
-  position: relative;
-  font-family: "Digital-7", "DS-Digital", "Orbitron", ui-sans-serif, system-ui;
-  font-size: 90px;
-  font-weight: 900;
-  color: #ff3b32;
-  letter-spacing: 4px;
-  text-shadow:
-    0 0 10px rgba(255, 58, 50, 0.85),
-    0 0 20px rgba(255, 58, 50, 0.55);
+/* === CONTADOR (estilo grande con halo rojo, bordes redondeados) === */
+.timer{
+  position:relative;
+  padding:36px 72px;
+  border-radius:28px;
+  background:#343a40;                 /* caja exterior gris oscuro */
+  box-shadow:0 14px 28px rgba(0,0,0,.35), inset 0 0 0 2px rgba(0,0,0,.15);
+  color:#ff3b32;
+  font-family: "Digital-7","DS-Digital","Orbitron", ui-sans-serif, system-ui;
+  font-weight:900;
+  font-size:110px;                     /* tamaño de dígitos */
+  letter-spacing:6px;
+  text-shadow:0 0 12px rgba(255,60,50,.9), 0 0 26px rgba(255,60,50,.55);
 }
-.timer::before {
-  content: "";
-  position: absolute;
-  inset: 14px;
-  border-radius: 22px;
-  background: radial-gradient(
-    120% 80% at 50% 30%,
-    #000000aa 10%,
-    #731c22 55%,
-    #2a0f12 100%
-  );
-  box-shadow:
-    inset 0 0 0 2px rgba(255, 0, 0, 0.25),
-    inset 0 0 30px rgba(255, 0, 0, 0.25);
-  z-index: -1;
+.timer::before{
+  content:"";
+  position:absolute; inset:12px; border-radius:22px;
+  background:
+    radial-gradient(120% 80% at 50% 25%, #000000b0 15%, #7a1e24 55%, #2a0f12 100%);
+  box-shadow: inset 0 0 0 2px rgba(255,50,50,.35), inset 0 0 38px rgba(255,50,50,.28);
+  z-index:-1;
 }
 
-/* === BOTÓN ⚙️ CONFIG (esquina superior izquierda, fuera del contador) === */
-.gear {
-  position: fixed;
-  top: 12px;
-  left: 12px;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: #fff;
-  border-radius: 12px;
-  padding: 8px 12px;
-  cursor: pointer;
-  font-size: 22px;
-  z-index: 9999;
-  transition: background 0.2s ease;
-}
-.gear:hover {
-  background: rgba(255, 255, 255, 0.2);
+/* ====== TOP DONADORES ====== */
+/* Tarjeta tipo “capsula” grande */
+.row{
+  display:flex; align-items:center; gap:18px;
+  padding:18px 24px;
+  min-width:760px;                     /* ancho visible grande como la foto */
+  background: linear-gradient(180deg, #2f3640, #313949);
+  border-radius:34px;
+  box-shadow: 0 10px 24px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.06);
 }
 
-/* === TOP 3 DE DONADORES === */
-.row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: rgba(0, 0, 0, 0.25);
-  padding: 6px 10px;
-  border-radius: 10px;
-  min-width: 200px;
-  justify-content: space-between;
-  font-family: "Inter", sans-serif;
+/* Medalla/redondo con el número */
+.badge{
+  width:96px; height:96px; flex:0 0 96px;
+  display:flex; align-items:center; justify-content:center;
+  border-radius:50%;
+  background: radial-gradient(circle at 30% 30%, #fff6, #0000),
+             linear-gradient(180deg, #ffd84a, #d9a400);
+  color:#111; font-weight:900; font-size:44px;
+  box-shadow: inset 0 0 0 3px rgba(0,0,0,.15), 0 4px 10px rgba(0,0,0,.35);
 }
-.badge {
-  background: gold;
-  color: black;
-  font-weight: 700;
-  border-radius: 50%;
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
+.badge.silver{
+  background: radial-gradient(circle at 30% 30%, #fff6, #0000),
+             linear-gradient(180deg, #dfe3ea, #aeb6c4);
 }
-.badge.silver {
-  background: silver;
-}
-.badge.bronze {
-  background: #b87333;
-}
-.avatar {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  object-fit: cover;
-}
-.name {
-  flex: 1;
-  color: white;
-  font-weight: 500;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.coin {
-  color: #ffd700;
-  font-weight: 600;
-  min-width: 40px;
-  text-align: right;
+.badge.bronze{
+  background: radial-gradient(circle at 30% 30%, #fff6, #0000),
+             linear-gradient(180deg, #e8a56a, #b46a2b);
 }
 
-/* === PANEL PARA CAMBIAR USUARIO === */
-.sheet {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 9998;
-}
-.card {
-  width: min(92vw, 420px);
-  background: #111a;
-  backdrop-filter: blur(14px);
-  color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 16px;
-  padding: 18px;
-}
-.card h3 {
-  margin: 0 0 8px 0;
-}
-.field {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  background: #1b2232;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-  padding: 8px 10px;
-}
-.field span {
-  opacity: 0.7;
-}
-.field input {
-  background: transparent;
-  border: 0;
-  outline: none;
-  color: #fff;
-  width: 100%;
-}
-.actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 12px;
-}
-.actions button {
-  background: #222;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: #fff;
-  padding: 8px 12px;
-  border-radius: 10px;
-  cursor: pointer;
-}
-.actions button:last-child {
-  background: #2b6aff;
-  border-color: #2b6aff;
+/* Avatar circular grande con borde sutil */
+.avatar{
+  width:100px; height:100px; flex:0 0 100px;
+  border-radius:50%; object-fit:cover;
+  box-shadow: 0 2px 8px rgba(0,0,0,.35), inset 0 0 0 3px rgba(255,255,255,.12);
 }
 
-/* === MODAL GANADOR === */
-.winner {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.4);
-  z-index: 9997;
+/* Nombre grande, blanco con sombra suave */
+.name{
+  flex:1; color:#fff; font-weight:800; font-size:56px; letter-spacing:.5px;
+  text-shadow: 0 2px 4px rgba(0,0,0,.35);
+  overflow:hidden; white-space:nowrap; text-overflow:ellipsis;
 }
-.win-card {
-  width: min(92vw, 420px);
-  background: #ffdf3b;
-  color: #111;
-  border-radius: 18px;
-  padding: 18px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
-  text-align: center;
-  border: 2px solid #f3c300;
+
+/* Moneda/Diamantes a la derecha */
+.coin{
+  display:flex; align-items:center; gap:16px;
+  color:#fff; font-weight:900; font-size:54px; min-width:120px; justify-content:flex-end;
 }
-.trophy {
-  font-size: 40px;
-  margin-bottom: 6px;
+.coin::before{
+  content:"";
+  width:44px; height:44px; border-radius:50%;
+  background: radial-gradient(circle at 30% 30%, #fff8, #0000),
+             linear-gradient(180deg, #ffd84a, #d9a400);
+  box-shadow: inset 0 0 0 2px rgba(0,0,0,.25);
 }
-.win-title {
-  font-size: 28px;
-  font-weight: 900;
-  margin-bottom: 6px;
+
+/* ====== BOTÓN ⚙️ CONFIG (esquina sup. izquierda, afuera) ====== */
+.gear{
+  position:fixed; top:12px; left:12px;
+  background: rgba(255,255,255,.1);
+  border:1px solid rgba(255,255,255,.18);
+  color:#fff; border-radius:12px; padding:8px 12px; cursor:pointer; font-size:22px;
+  z-index:9999; transition: background .2s ease;
 }
-.win-name {
-  font-size: 22px;
-  font-weight: 800;
-  color: #991b1b;
-  margin-bottom: 10px;
-}
-.win-coins {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 800;
-  background: #ffe97a;
-  border: 1px solid #e3b400;
-  padding: 8px 12px;
-  border-radius: 12px;
-}
-.win-coins .dot {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 30% 30%, #fff9, #0000),
-    linear-gradient(180deg, #ffe07a, #d8a41d);
-  border: 1px solid rgba(0, 0, 0, 0.25);
-}
-.win-footer {
-  margin-top: 12px;
-  font-weight: 700;
-}
-.win-close {
-  margin-top: 12px;
-  background: #111;
-  color: #fff;
-  border: 0;
-  padding: 8px 12px;
-  border-radius: 10px;
-  cursor: pointer;
-}
+.gear:hover{ background:rgba(255,255,255,.2) }
+
+/* ====== PANEL CAMBIO DE USUARIO ====== */
+.sheet{ position:fixed; inset:0; background:rgba(0,0,0,.4); display:flex; align-items:center; justify-content:center; z-index:9998; }
+.card{ width:min(92vw,420px); background:#111a; backdrop-filter:blur(14px); color:#fff; border:1px solid rgba(255,255,255,.15); border-radius:16px; padding:18px; }
+.card h3{ margin:0 0 8px 0 }
+.field{ display:flex; gap:6px; align-items:center; background:#1b2232; border:1px solid rgba(255,255,255,.1); border-radius:10px; padding:8px 10px; }
+.field span{ opacity:.7 }
+.field input{ background:transparent; border:0; outline:none; color:#fff; width:100% }
+.actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:12px }
+.actions button{ background:#222; border:1px solid rgba(255,255,255,.15); color:#fff; padding:8px 12px; border-radius:10px; cursor:pointer }
+.actions button:last-child{ background:#2b6aff; border-color:#2b6aff }
+
+/* ====== MODAL GANADOR ====== */
+.winner{ position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.4); z-index:9997 }
+.win-card{ width:min(92vw,420px); background:#ffdf3b; color:#111; border-radius:18px; padding:18px; box-shadow:0 10px 30px rgba(0,0,0,.35); text-align:center; border:2px solid #f3c300 }
+.trophy{ font-size:40px; margin-bottom:6px }
+.win-title{ font-size:28px; font-weight:900; margin-bottom:6px }
+.win-name{ font-size:22px; font-weight:800; color:#991b1b; margin-bottom:10px }
+.win-coins{ display:inline-flex; align-items:center; gap:8px; font-weight:800; background:#ffe97a; border:1px solid #e3b400; padding:8px 12px; border-radius:12px }
+.win-coins .dot{ width:14px; height:14px; border-radius:50%; background: radial-gradient(circle at 30% 30%, #fff9, #0000), linear-gradient(180deg,#ffe07a,#d8a41d); border:1px solid rgba(0,0,0,.25) }
+.win-footer{ margin-top:12px; font-weight:700 }
+.win-close{ margin-top:12px; background:#111; color:#fff; border:0; padding:8px 12px; border-radius:10px; cursor:pointer }
