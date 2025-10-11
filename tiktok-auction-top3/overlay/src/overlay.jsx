@@ -8,13 +8,12 @@ import './style.css'
 export default function App() {
   const q = new URLSearchParams(location.search)
   const room = (q.get('room') || '').trim()
-
   if (!room) return <RoomWizard />
   return <AuctionOverlay />
 }
 
 /* ======================================================
-   OVERLAY de subasta (lo que ya tenías, con room/auto)
+   OVERLAY de subasta (contador + top con estilo de foto)
    ====================================================== */
 function AuctionOverlay() {
   const q = useMemo(() => new URLSearchParams(location.search), [])
@@ -23,6 +22,7 @@ function AuctionOverlay() {
   const WS = RAW_WS.replace(/\/+$/, '')
   const initialTitle = q.get('title') || 'Subasta'
   const autoUser = (q.get('autouser') || '').replace(/^@+/, '').trim()
+  const topN = Number(q.get('top') || 3)
 
   const [state, setState] = useState({ title: initialTitle, endsAt: 0, top: [] })
   const [now, setNow] = useState(Date.now())
@@ -116,10 +116,11 @@ function AuctionOverlay() {
 
   return (
     <>
-      {/* CONTADOR + TOP */}
+      {/* CONTADOR + TOP (estilo foto) */}
       <div className="panel">
         <div className="timer">{mm}:{ss}</div>
-        {state.top.slice(0, Number(q.get('top') || 3)).map((d, i) => (
+
+        {state.top.slice(0, topN).map((d, i) => (
           <div className="row" key={d.user + i}>
             <div className={`badge ${i === 1 ? 'silver' : i === 2 ? 'bronze' : ''}`}>{i + 1}</div>
             <img className="avatar" src={d.avatar || ''} alt="" />
@@ -127,7 +128,8 @@ function AuctionOverlay() {
             <div className="coin">{d.total}</div>
           </div>
         ))}
-        {/* engranaje */}
+
+        {/* engranaje (arriba-izquierda, fuera del contador) */}
         <button className="gear" title="Cambiar usuario de TikTok" onClick={() => setShowPanel(v => !v)}>⚙️</button>
       </div>
 
@@ -170,7 +172,7 @@ function AuctionOverlay() {
 }
 
 /* ============================================
-   ROOM WIZARD (sin ?room= muestra este panel)
+   ROOM WIZARD (creador de sala con estilo)
    ============================================ */
 function RoomWizard() {
   const [room, setRoom] = useState(randomRoom())
@@ -202,11 +204,12 @@ function RoomWizard() {
     <div className="wizard">
       <div className="w-card">
         <h2>Crear mi sala de subasta</h2>
+
         <div className="w-field">
           <label>Nombre de sala (room)</label>
           <div className="w-row">
             <input value={room} onChange={e => setRoom(e.target.value)} placeholder="miSala123" />
-            <button onClick={() => setRoom(randomRoom())}>Aleatorio</button>
+            <button className="w-btn" onClick={() => setRoom(randomRoom())}>Aleatorio</button>
           </div>
         </div>
 
@@ -230,8 +233,8 @@ function RoomWizard() {
         </div>
 
         <div className="w-actions">
-          <button onClick={openOverlay}>Abrir overlay</button>
-          <button onClick={copyLink}>Copiar link</button>
+          <button className="w-primary" onClick={openOverlay}>Abrir overlay</button>
+          <button className="w-success" onClick={copyLink}>Copiar link</button>
         </div>
 
         <div className="w-hint">
