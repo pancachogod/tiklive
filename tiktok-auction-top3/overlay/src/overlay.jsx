@@ -1,4 +1,12 @@
-/* ----------------------------------------------------------
+// overlay/src/overlay.jsx
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { io } from 'socket.io-client'
+import './style.css'   // 👈 aquí se carga el CSS, no lo pegues dentro del JSX
+
+// ...resto de tu componente (LicenseGate, AdminPanel, RoomWizard, AuctionOverlay, etc.)
+
+/* 
+----------------------------------------------------------
    BASE / RESET
 ---------------------------------------------------------- */
 :root { color-scheme: dark; }
