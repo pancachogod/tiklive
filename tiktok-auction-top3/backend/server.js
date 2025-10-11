@@ -6,91 +6,109 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import { WebcastPushConnection } from 'tiktok-live-connector';
 
-// ---------- Config ----------
-const DEFAULT_USER = (process.env.TIKTOK_USER || 'sticx33').trim();
 const PORT = process.env.PORT || 3000;
 
-// Cambia el primer origin por TU dominio de Vercel (prod):
+// Orígenes permitidos (ajusta el dominio de tu Vercel)
 const ORIGINS = [
-  'https://tiklive-m2cpe7yaf-pancachogods-projects.vercel.app',
-  /\.vercel\.app$/,      // previews Vercel
-  'http://localhost:5173'
+  'https://tiklive-6ywqave4w-pancachogods-projects.vercel.app',
+  /\.vercel\.app$/,
+  'http://localhost:5173',
 ];
 
-// ---------- App / CORS ----------
 const app = express();
 app.use(cors({
   origin: ORIGINS,
   methods: ['GET','POST','OPTIONS'],
   allowedHeaders: ['Content-Type'],
-  credentials: false,
-  optionsSuccessStatus: 204
-}));
-app.options('*', cors({
-  origin: ORIGINS,
-  methods: ['GET','POST','OPTIONS'],
-  allowedHeaders: ['Content-Type']
 }));
 app.use(express.json());
 
-// ---------- HTTP + Socket.IO ----------
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: ORIGINS, methods: ['GET','POST'] },
-  transports: ['websocket','polling']
+  transports: ['websocket', 'polling'],
 });
 
-// ---------- Estado de subasta ----------
-let auction = { title: 'Subasta', endsAt: 0, donationsTotal: 0, top: [] };
-const donors = new Map(); // user -> { total, avatar }
-const isAuctionRunning = () => Number(auction.endsAt) > Date.now();
+/** =========================
+ *   MODELO MULTI-ROOM
+ *  =========================
+ * rooms: Map<roomId, Room>
+ * Room = {
+ *   id, user, auction:{title,endsAt,donationsTotal,top},
+ *   donors: Map,
+ *   tiktok: WebcastPushConnection|null,
+ *   reconnectTimer: NodeJS.Timer|null,
+ *   lastActivity: number
+ * }
+ */
+const rooms = new Map();
+const ROOM_IDLE_MS = 60 * 60 * 1000; // 1h sin actividad => limpieza opcional
 
-function recalcTop(){
-  auction.top = [...donors.entries()]
-    .map(([u,v]) => ({ user: u, total: v.total, avatar: v.avatar }))
-    .sort((a,b)=> b.total - a.total)
-    .slice(0,10);
-  io.emit('donation', { donationsTotal: auction.donationsTotal, top: auction.top });
+function now() { return Date.now(); }
+
+function newRoom(roomId) {
+  return {
+    id: roomId,
+    user: (process.env.TIKTOK_USER || 'sticx33').trim(),   // usuario por defecto
+    auction: { title: 'Subasta', endsAt: 0, donationsTotal: 0, top: [] },
+    donors: new Map(),
+    tiktok: null,
+    reconnectTimer: null,
+    lastActivity: now(),
+  };
 }
 
-// ---------- Reconexión con cuenta regresiva ----------
-let reconnectTimer = null;
-function scheduleReconnect(ms = 30_000){
-  if (reconnectTimer) return;
-  let left = Math.floor(ms/1000);
-  console.log(`Reintentando conexión a TikTok en ${left}s…`);
-  reconnectTimer = setInterval(()=>{
+function getRoom(roomId) {
+  let r = rooms.get(roomId);
+  if (!r) { r = newRoom(roomId); rooms.set(roomId, r); }
+  r.lastActivity = now();
+  return r;
+}
+const isRunning = (r) => Number(r.auction.endsAt) > now();
+
+function emitDonation(r) {
+  r.auction.top = [...r.donors.entries()]
+    .map(([u, v]) => ({ user: u, total: v.total, avatar: v.avatar }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 10);
+  io.to(r.id).emit('donation', { donationsTotal: r.auction.donationsTotal, top: r.auction.top });
+}
+
+function scheduleReconnect(r, ms = 30_000) {
+  if (r.reconnectTimer) return;
+  let left = Math.floor(ms / 1000);
+  console.log(`[${r.id}] Reintentando conexión a TikTok en ${left}s…`);
+  r.reconnectTimer = setInterval(() => {
     left -= 1;
-    if (left <= 0){
-      clearInterval(reconnectTimer);
-      reconnectTimer = null;
-      connectLoop();
+    if (left <= 0) {
+      clearInterval(r.reconnectTimer);
+      r.reconnectTimer = null;
+      connectLoop(r);
     } else {
-      console.log(`Reintentando en ${left}s…`);
+      console.log(`[${r.id}] Reintentando en ${left}s…`);
     }
   }, 1000);
 }
 
-// ---------- Conexión a TikTok (usuario dinámico) ----------
-let currentUser = DEFAULT_USER;
-let tiktok;
-
-async function connectLoop(){
+async function connectLoop(r) {
   try {
-    tiktok = new WebcastPushConnection(currentUser);
-    await tiktok.connect();
-    console.log('Conectado a TikTok LIVE de', currentUser);
+    if (r.tiktok) {
+      // si existe instancia vieja, cerramos listeners
+      r.tiktok.removeAllListeners('gift');
+      r.tiktok.removeAllListeners('disconnected');
+      try { r.tiktok.disconnect && r.tiktok.disconnect(); } catch {}
+      r.tiktok = null;
+    }
 
-    if (reconnectTimer){ clearInterval(reconnectTimer); reconnectTimer = null; }
+    r.tiktok = new WebcastPushConnection(r.user);
+    await r.tiktok.connect();
+    console.log(`[${r.id}] Conectado a TikTok LIVE de @${r.user}`);
 
-    // Limpia listeners por si reconectamos
-    tiktok.removeAllListeners('gift');
-    tiktok.removeAllListeners('disconnected');
+    if (r.reconnectTimer) { clearInterval(r.reconnectTimer); r.reconnectTimer = null; }
 
-    // Regalos (maneja rachas: solo suma al final)
-    tiktok.on('gift', (data)=>{
-      if (!isAuctionRunning()) return;
-      if (data?.giftType === 1 && !data?.repeatEnd) return;
+    r.tiktok.on('gift', data => {
+      if (!isRunning(r)) return;
+      if (data?.giftType === 1 && !data?.repeatEnd) return; // sumar al final de racha
 
       const user = data?.nickname || data?.uniqueId || 'Anónimo';
       const avatar = data?.profilePictureUrl || '';
@@ -98,94 +116,118 @@ async function connectLoop(){
       const count   = data?.repeatCount ?? 1;
       const diamonds = perGift * count;
 
-      if (diamonds > 0){
-        const prev = donors.get(user) || { total: 0, avatar };
+      if (diamonds > 0) {
+        const prev = r.donors.get(user) || { total: 0, avatar };
         prev.total += diamonds;
         prev.avatar = avatar || prev.avatar;
-        donors.set(user, prev);
-        auction.donationsTotal += diamonds;
-        recalcTop();
+        r.donors.set(user, prev);
+        r.auction.donationsTotal += diamonds;
+        emitDonation(r);
       }
     });
 
-    tiktok.on('disconnected', ()=>{
-      console.log('Desconectado de TikTok.');
-      scheduleReconnect(30_000);
+    r.tiktok.on('disconnected', () => {
+      console.log(`[${r.id}] Desconectado de TikTok.`);
+      scheduleReconnect(r, 30_000);
     });
-
-  } catch (err){
-    console.error('Error conectando a TikTok:', err?.message || err);
-    scheduleReconnect(30_000);
+  } catch (err) {
+    console.error(`[${r.id}] Error conectando a TikTok:`, err?.message || err);
+    scheduleReconnect(r, 30_000);
   }
 }
-connectLoop();
 
-// Watchdog: notifica estado cuando termina el tiempo (no suma más)
-setInterval(()=>{
-  if (!isAuctionRunning() && auction.endsAt !== 0){
-    io.emit('state', auction);
+// Limpieza simple de rooms inactivos (opcional)
+setInterval(() => {
+  const cutoff = now() - ROOM_IDLE_MS;
+  for (const [id, r] of rooms) {
+    if (r.lastActivity < cutoff && !isRunning(r)) {
+      console.log(`🧹 Eliminando room inactivo: ${id}`);
+      try { r.tiktok?.disconnect?.(); } catch {}
+      clearInterval(r.reconnectTimer);
+      rooms.delete(id);
+    }
+  }
+}, 10 * 60 * 1000); // cada 10 min
+
+// Watchdog: notifica al terminar el tiempo (no suma más)
+setInterval(() => {
+  for (const r of rooms.values()) {
+    if (!isRunning(r) && r.auction.endsAt !== 0) {
+      io.to(r.id).emit('state', r.auction);
+    }
   }
 }, 1000);
 
-// ---------- ENDPOINTS (¡YA con app definido!) ----------
+/* ============ ENDPOINTS POR ROOM ============ */
 
-// Cambiar usuario y reconectar (para multi-usuario)
-app.post('/user', (req, res)=>{
-  const { user } = req.body || {};
-  const clean = String(user || '').trim().replace(/^@+/, '');
-  if (!clean) return res.status(400).json({ ok:false, error:'user-required' });
+// Cambiar usuario de TikTok para un room
+app.post('/:room/user', (req, res) => {
+  const roomId = String(req.params.room || '').trim();
+  const r = getRoom(roomId);
+  const clean = String((req.body?.user || '')).trim().replace(/^@+/, '');
+  if (!clean) return res.status(400).json({ ok: false, error: 'user-required' });
 
-  currentUser = clean;
-  console.log('🟡 Cambiando usuario a', currentUser, 'y reconectando…');
+  r.user = clean;
+  console.log(`[${r.id}] Cambiando usuario a @${clean} y reconectando…`);
+  // no tocamos endsAt; solo reiniciamos ranking
+  r.donors.clear();
+  r.auction.top = [];
+  r.auction.donationsTotal = 0;
 
-  // Reset ranking (no tocamos endsAt para no romper el timer del front)
-  donors.clear();
-  auction.top = [];
-  auction.donationsTotal = 0;
-
-  scheduleReconnect(1000);
-  io.emit('state', auction);
-  return res.json({ ok:true, user: currentUser });
+  scheduleReconnect(r, 1000);
+  io.to(r.id).emit('state', r.auction);
+  res.json({ ok: true, user: r.user });
 });
 
-// Iniciar/reiniciar subasta
-app.post('/auction/start', (req,res)=>{
+// Iniciar/reiniciar subasta en un room
+app.post('/:room/auction/start', (req, res) => {
+  const roomId = String(req.params.room || '').trim();
+  const r = getRoom(roomId);
   const { durationSec = 60, title } = req.body || {};
   const dur = Math.max(1, Number(durationSec) || 60);
-  if (title) auction.title = String(title);
-  auction.endsAt = Date.now() + dur*1000;
-  auction.donationsTotal = 0;
-  auction.top = [];
-  donors.clear();
-  io.emit('state', auction);
-  res.json({ ok:true, auction });
+  if (title) r.auction.title = String(title);
+  r.auction.endsAt = now() + dur * 1000;
+  r.auction.donationsTotal = 0;
+  r.auction.top = [];
+  r.donors.clear();
+  io.to(r.id).emit('state', r.auction);
+  res.json({ ok: true, auction: r.auction });
 });
 
-// Estado/Salud
-app.get('/auction', (_req,res)=> res.json(auction));
-app.get('/health',  (_req,res)=> res.send('ok'));
-app.get('/status',  (_req,res)=> res.json({
-  user: currentUser,
-  running: isAuctionRunning(),
-  endsAt: auction.endsAt,
-  donors: donors.size,
-  topSize: auction.top.length
-}));
+app.get('/:room/auction', (req, res) => {
+  const r = getRoom(String(req.params.room || '').trim());
+  res.json(r.auction);
+});
 
-// Simulador de donaciones (respeta la ventana de tiempo)
-app.post('/debug/gift', (req,res)=>{
+app.get('/:room/status', (req, res) => {
+  const r = getRoom(String(req.params.room || '').trim());
+  res.json({ room: r.id, user: r.user, running: isRunning(r), endsAt: r.auction.endsAt, donors: r.donors.size, topSize: r.auction.top.length });
+});
+
+app.get('/health', (_req, res) => res.send('ok'));
+
+// Simular donación (respeta ventana de tiempo)
+app.post('/:room/debug/gift', (req, res) => {
+  const r = getRoom(String(req.params.room || '').trim());
   const { user='Tester', avatar='', diamonds=50 } = req.body || {};
-  if (!isAuctionRunning()) return res.json({ ok:true, ignored:true, reason:'auction-ended' });
-  const prev = donors.get(user) || { total: 0, avatar };
+  if (!isRunning(r)) return res.json({ ok: true, ignored: true, reason: 'auction-ended' });
+  const prev = r.donors.get(user) || { total: 0, avatar };
   prev.total += Number(diamonds);
   prev.avatar = avatar || prev.avatar;
-  donors.set(user, prev);
-  auction.donationsTotal += Number(diamonds);
-  recalcTop();
-  res.json({ ok:true, top: auction.top });
+  r.donors.set(user, prev);
+  r.auction.donationsTotal += Number(diamonds);
+  emitDonation(r);
+  res.json({ ok: true, top: r.auction.top });
 });
 
-// Socket.IO: enviar estado al conectar
-io.on('connection', (socket)=> socket.emit('state', auction));
+/* ============ SOCKET.IO (join por room) ============ */
+io.on('connection', (socket) => {
+  const roomId = String((socket.handshake?.query?.room || '')).trim();
+  if (!roomId) { socket.disconnect(true); return; }
+  const r = getRoom(roomId);
+  socket.join(r.id);
+  // enviar estado inicial
+  socket.emit('state', r.auction);
+});
 
-server.listen(PORT, ()=> console.log('Backend on :' + PORT));
+server.listen(PORT, () => console.log('Backend on :' + PORT));
