@@ -2,18 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
 import './style.css'
 
-
-/* Decide si mostrar Room Wizard o Overlay */
-function Decider() {
-  const q = new URLSearchParams(location.search)
-  const room = (q.get('room') || '').trim()
-  if (!room) return <RoomWizard />
-  return <AuctionOverlay />
-}
-
-// --- Helpers comunes (colócalos arriba del componente Overlay si no los tienes) ---
+/* ======================= HELPERS COMUNES ======================= */
 function sanitizeBaseUrl(u) {
-  // quita espacios y barras finales repetidas
   return String(u || '').trim().replace(/\/+$/, '')
 }
 
@@ -23,26 +13,24 @@ async function postJSON(url, body) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body ?? {}),
   })
-  // Si hay 204 no content, evita .json()
   const text = await r.text()
   const data = text ? JSON.parse(text) : {}
   return { ok: r.ok, status: r.status, data }
 }
 
-// --- LicenseGate: BLOQUE COMPLETO PARA COPIAR/PEGAR ---
+/* ======================= LICENSE GATE ======================= */
 function LicenseGate({ children }) {
   const q = new URLSearchParams(location.search)
   const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || 'http://localhost:3000'
   const WS = sanitizeBaseUrl(RAW_WS)
 
-  const [checking, setChecking] = React.useState(true)
-  const [ok, setOk] = React.useState(false)
-  const [key, setKey] = React.useState(q.get('key') || localStorage.getItem('LIC_KEY') || '')
-  const [msg, setMsg] = React.useState('')
-  const [busy, setBusy] = React.useState(false)
+  const [checking, setChecking] = useState(true)
+  const [ok, setOk] = useState(false)
+  const [key, setKey] = useState(q.get('key') || localStorage.getItem('LIC_KEY') || '')
+  const [msg, setMsg] = useState('')
+  const [busy, setBusy] = useState(false)
 
-  // Verificación automática si ya hay key guardada o viene por query
-  React.useEffect(() => {
+  useEffect(() => {
     (async () => {
       const k = (q.get('key') || localStorage.getItem('LIC_KEY') || '').trim()
       if (!k) { setChecking(false); setOk(false); return }
@@ -82,7 +70,6 @@ function LicenseGate({ children }) {
     setBusy(true)
     try {
       const { ok: httpOK, data } = await postJSON(`${WS}/license/verify`, { key: k })
-      // Esperamos { ok:true, expiresAt? } desde el backend
       if (httpOK && data?.ok) {
         localStorage.setItem('LIC_KEY', k)
         setOk(true)
@@ -132,8 +119,6 @@ function LicenseGate({ children }) {
     </div>
   )
 }
-
-
 
 /* ======================= ADMIN PANEL ======================= */
 function AdminPanel() {
@@ -344,7 +329,7 @@ function AuctionOverlay() {
   )
 }
 
-/* ======================= ROOM WIZARD (crear sala) ======================= */
+/* ======================= ROOM WIZARD ======================= */
 function RoomWizard() {
   const [room, setRoom] = useState(randomRoom())
   const [ws, setWs] = useState('https://tiklive-63mk.onrender.com')
@@ -353,7 +338,7 @@ function RoomWizard() {
 
   const makeUrl = () => {
     const p = new URLSearchParams()
-    p.set('ws', ws.replace(/\/+$/, ''))
+    p.set('ws', sanitizeBaseUrl(ws))
     p.set('room', room.trim())
     p.set('top', String(top))
     const key = localStorage.getItem('LIC_KEY')
@@ -412,3 +397,28 @@ function RoomWizard() {
   )
 }
 function randomRoom(){ return 'room-' + Math.random().toString(36).slice(2,7) }
+
+/* ======================= DECIDER ======================= */
+function Decider() {
+  const q = new URLSearchParams(location.search)
+  const room = (q.get('room') || '').trim()
+  if (!room) return <RoomWizard />
+  return <AuctionOverlay />
+}
+
+/* ======================= APP (DEFAULT EXPORT) ======================= */
+function OverlayApp() {
+  const q = new URLSearchParams(location.search)
+  const isAdmin = q.get('admin') === '1'
+
+  // Admin no exige licencia; overlay/wizard sí.
+  if (isAdmin) return <AdminPanel />
+
+  return (
+    <LicenseGate>
+      <Decider />
+    </LicenseGate>
+  )
+}
+
+export default OverlayApp   // ⬅️ exportación por defecto obligatoria
