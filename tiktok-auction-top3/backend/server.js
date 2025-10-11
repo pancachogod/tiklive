@@ -1,3 +1,4 @@
+import { WebcastPushConnection } from 'tiktok-live-connector';
 // --- Config ---
 const DEFAULT_USER = (process.env.TIKTOK_USER || 'sticx33').trim();
 const PORT = process.env.PORT || 3000;
