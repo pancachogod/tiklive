@@ -1,9 +1,9 @@
-/* === CONTADOR (centrado, grande, mismo estilo original) === */
+/* === CONTADOR (arriba centrado, mismo estilo original) === */
 .panel {
   position: fixed;
-  top: 50%;
+  top: 40px;
   left: 50%;
-  transform: translate(-50%, -50%);
+  transform: translateX(-50%);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -13,7 +13,7 @@
 
 .timer {
   display: inline-block;
-  padding: 28px 48px;
+  padding: 24px 44px;
   border-radius: 28px;
   background: #2f3640;
   box-shadow:
@@ -21,7 +21,7 @@
     inset 0 0 0 2px rgba(0, 0, 0, 0.15);
   position: relative;
   font-family: "Digital-7", "DS-Digital", "Orbitron", ui-sans-serif, system-ui;
-  font-size: 100px;
+  font-size: 90px;
   font-weight: 900;
   color: #ff3b32;
   letter-spacing: 4px;
@@ -44,6 +44,21 @@
     inset 0 0 0 2px rgba(255, 0, 0, 0.25),
     inset 0 0 30px rgba(255, 0, 0, 0.25);
   z-index: -1;
+}
+
+/* === BOTÓN ⚙️ CONFIG (arriba izquierda, fuera del contador) === */
+.gear {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #fff;
+  border-radius: 12px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 20px;
+  z-index: 9999;
 }
 
 /* === TOP 3 DE DONADORES === */
@@ -95,21 +110,6 @@
   font-weight: 600;
   min-width: 40px;
   text-align: right;
-}
-
-/* === BOTÓN ⚙️ CONFIG (arriba izquierda) === */
-.gear {
-  position: fixed;
-  top: 12px;
-  left: 12px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: #fff;
-  border-radius: 12px;
-  padding: 6px 10px;
-  cursor: pointer;
-  font-size: 20px;
-  z-index: 9999;
 }
 
 /* === PANEL PARA CAMBIAR USUARIO === */
