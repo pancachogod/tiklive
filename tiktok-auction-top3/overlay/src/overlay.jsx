@@ -2,20 +2,21 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
 import './style.css'
 
+/* ============================================================
+   APP: Gate de licencia → (Admin? Gate? Wizard u Overlay)
+============================================================ */
 export default function App() {
   const q = new URLSearchParams(location.search)
   const admin = q.get('admin') === '1'
-
   if (admin) return <AdminPanel />
-
-  // Paso 1: Gate de licencia
-  return <LicenseGate>
-    {/* Paso 2: Si pasa la licencia, decide: ¿hay room? */}
-    <Decider />
-  </LicenseGate>
+  return (
+    <LicenseGate>
+      <Decider />
+    </LicenseGate>
+  )
 }
 
-/* --------------- Decider: Room Wizard u Overlay --------------- */
+/* Decide si mostrar Room Wizard o Overlay */
 function Decider() {
   const q = new URLSearchParams(location.search)
   const room = (q.get('room') || '').trim()
@@ -28,14 +29,13 @@ function LicenseGate({ children }) {
   const q = new URLSearchParams(location.search)
   const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || 'http://localhost:3000'
   const WS = RAW_WS.replace(/\/+$/, '')
-  const telURL = `${WS}/license/telegram`
+  const telURL = `${WS}/license/telegram` // abre tu canal de Telegram (Render env)
 
   const [checking, setChecking] = useState(true)
   const [ok, setOk] = useState(false)
   const [key, setKey] = useState(q.get('key') || localStorage.getItem('LIC_KEY') || '')
   const [msg, setMsg] = useState('')
 
-  // Auto-verify al cargar si hay key
   useEffect(() => {
     (async () => {
       const k = (q.get('key') || localStorage.getItem('LIC_KEY') || '').trim()
@@ -61,37 +61,24 @@ function LicenseGate({ children }) {
     const k = key.trim()
     if (!k) { setMsg('Ingresa tu código.'); return }
     const r = await verifyKey(WS, k)
-    if (r.ok) {
-      localStorage.setItem('LIC_KEY', k)
-      setOk(true)
-    } else {
-      setMsg('Código inválido o vencido.')
-    }
+    if (r.ok) { localStorage.setItem('LIC_KEY', k); setOk(true) }
+    else setMsg('Código inválido o vencido.')
   }
-
-  const getMembership = () => {
-    window.open(telURL, '_blank')
-  }
+  const getMembership = () => window.open(telURL, '_blank')
 
   return (
     <div className="gate">
       <div className="g-card">
         <div className="g-title">Canjear código</div>
         <div className="g-field">
-          <input
-            value={key}
-            onChange={e => setKey(e.target.value)}
-            placeholder="Pega tu código aquí"
-          />
+          <input value={key} onChange={e=>setKey(e.target.value)} placeholder="Pega tu código aquí" />
         </div>
         {msg && <div className="g-msg">{msg}</div>}
         <div className="g-actions">
           <button className="g-primary" onClick={redeem}>Canjear</button>
           <button className="g-ghost" onClick={getMembership}>Obtener membresía</button>
         </div>
-        <div className="g-hint">
-          ¿No tienes un código? Pulsa “Obtener membresía” para hablar por Telegram.
-        </div>
+        <div className="g-hint">¿No tienes un código? Pulsa “Obtener membresía”.</div>
       </div>
     </div>
   )
@@ -100,19 +87,17 @@ function LicenseGate({ children }) {
 async function verifyKey(WS, key) {
   try {
     const res = await fetch(`${WS}/license/verify`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ key })
     })
-    const j = await res.json()
-    return j
+    return await res.json()
   } catch {
-    return { ok: false, error: 'network' }
+    return { ok:false, error:'network' }
   }
 }
 
 /* ======================= ADMIN PANEL ======================= */
-/* Acceso: ?admin=1  → solicita ADMIN_KEY y permite generar llaves */
 function AdminPanel() {
   const q = new URLSearchParams(location.search)
   const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || 'http://localhost:3000'
@@ -128,8 +113,8 @@ function AdminPanel() {
     setMsg('')
     try {
       const res = await fetch(`${WS}/admin/license/create`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-admin-key': adminKey },
+        method:'POST',
+        headers:{'Content-Type':'application/json', 'x-admin-key': adminKey},
         body: JSON.stringify({ months, count })
       })
       const j = await res.json()
@@ -185,7 +170,7 @@ function AdminPanel() {
   )
 }
 
-/* ======================= OVERLAY ======================= */
+/* ======================= OVERLAY (contador + top) ======================= */
 function AuctionOverlay() {
   const q = useMemo(() => new URLSearchParams(location.search), [])
   const room = (q.get('room') || 'demo').trim()
@@ -321,7 +306,7 @@ function AuctionOverlay() {
   )
 }
 
-/* ======================= ROOM WIZARD ======================= */
+/* ======================= ROOM WIZARD (crear sala) ======================= */
 function RoomWizard() {
   const [room, setRoom] = useState(randomRoom())
   const [ws, setWs] = useState('https://tiklive-63mk.onrender.com')
@@ -334,7 +319,7 @@ function RoomWizard() {
     p.set('room', room.trim())
     p.set('top', String(top))
     const key = localStorage.getItem('LIC_KEY')
-    if (key) p.set('key', key)  // opcional: propagar para otros dispositivos
+    if (key) p.set('key', key) // propagar licencia si cambian de equipo
     if (user.trim()) p.set('autouser', user.replace(/^@+/, '').trim())
     return `${location.origin}/?${p.toString()}`
   }
@@ -389,4 +374,4 @@ function RoomWizard() {
   )
 }
 
-function randomRoom() { return 'room-' + Math.random().toString(36).slice(2,7) }
+function randomRoom(){ return 'room-' + Math.random().toString(36).slice(2,7) }
