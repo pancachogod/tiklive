@@ -280,16 +280,21 @@ function AuctionOverlay() {
   return (
     <>
       <div className="panel">
-        <div className="timer">{mm}:{ss}</div>
+  <div className="timer">{mm}:{ss}</div>
 
-        {state.top.slice(0, topN).map((d, i) => (
-          <div className="row" key={d.user + i}>
-            <div className={`badge ${i===1 ? 'silver' : i===2 ? 'bronze' : ''}`}>{i+1}</div>
-            <img className="avatar" src={d.avatar || ''} alt="" />
-            <div className="name" title={d.user}>{d.user}</div>
-            <div className="coin">{d.total}</div>
-          </div>
-        ))}
+  {/* Marco del ranking */}
+  <div className="board">
+    {state.top.slice(0, topN).map((d, i) => (
+      <div className="row" key={`${d.user}-${i}`}>
+        <div className={`badge ${i===1 ? 'silver' : i===2 ? 'bronze' : ''}`}>{i+1}</div>
+        <img className="avatar" src={d.avatar || ''} alt="" />
+        <div className="name" title={d.user}>{d.user}</div>
+        <div className="coin">{d.total}</div>
+      </div>
+    ))}
+  </div>
+</div>
+
 
         <button className="gear" title="Cambiar usuario de TikTok" onClick={()=>setShowPanel(v=>!v)}>⚙️</button>
       </div>
