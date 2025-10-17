@@ -18,12 +18,14 @@ async function postJSON(url, body) {
   return { ok: r.ok, status: r.status, data }
 }
 
-function randomRoom(){ return 'room-' + Math.random().toString(36).slice(2,7) }
+function randomRoom() {
+  return 'room-' + Math.random().toString(36).slice(2, 7)
+}
 
 /* ======================== LICENSE GATE ======================== */
 function LicenseGate({ children }) {
   const q = new URLSearchParams(location.search)
-  const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || 'http://localhost:3000'
+  const RAW_WS = 'https://tiklive-63mk.onrender.com'
   const WS = sanitizeBaseUrl(RAW_WS)
 
   const [checking, setChecking] = useState(true)
@@ -35,7 +37,11 @@ function LicenseGate({ children }) {
   useEffect(() => {
     (async () => {
       const k = (q.get('key') || localStorage.getItem('LIC_KEY') || '').trim()
-      if (!k) { setChecking(false); setOk(false); return }
+      if (!k) {
+        setChecking(false)
+        setOk(false)
+        return
+      }
       try {
         const { ok: httpOK, data } = await postJSON(`${WS}/license/verify`, { key: k })
         if (httpOK && data?.ok) {
@@ -50,22 +56,28 @@ function LicenseGate({ children }) {
         setChecking(false)
       }
     })()
-  }, [WS]) // eslint-disable-line
+  }, [WS])
 
   if (checking) {
     return (
       <div className="gate">
-        <div className="g-card"><div className="g-title">Verificando licencia…</div></div>
+        <div className="g-card">
+          <div className="g-title">Verificando licencia…</div>
+        </div>
       </div>
     )
   }
+
   if (ok) return children
 
   const redeem = async (e) => {
     e?.preventDefault?.()
     setMsg('')
     const k = key.trim()
-    if (!k) { setMsg('Ingresa tu código.'); return }
+    if (!k) {
+      setMsg('Ingresa tu código.')
+      return
+    }
 
     setBusy(true)
     try {
@@ -93,7 +105,7 @@ function LicenseGate({ children }) {
         <div className="g-field">
           <input
             value={key}
-            onChange={e=>setKey(e.target.value)}
+            onChange={(e) => setKey(e.target.value)}
             placeholder="Pega tu código aquí"
             disabled={busy}
           />
@@ -111,7 +123,6 @@ function LicenseGate({ children }) {
         </div>
 
         <div className="g-hint">¿No tienes un código? Pulsa “Obtener membresía”.</div>
-        <div className="g-hint" style={{opacity:.7, fontSize:12}}>Backend: {WS}</div>
       </form>
     </div>
   )
@@ -119,10 +130,7 @@ function LicenseGate({ children }) {
 
 /* ======================== ADMIN PANEL ======================== */
 function AdminPanel() {
-  const q = new URLSearchParams(location.search)
-  const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || 'http://localhost:3000'
-  const WS = sanitizeBaseUrl(RAW_WS)
-
+  const WS = 'https://tiklive-63mk.onrender.com'
   const [adminKey, setAdminKey] = useState('')
   const [months, setMonths] = useState(1)
   const [count, setCount] = useState(5)
@@ -133,12 +141,16 @@ function AdminPanel() {
     setMsg('')
     try {
       const res = await fetch(`${WS}/admin/license/create`, {
-        method:'POST',
-        headers:{'Content-Type':'application/json', 'x-admin-key': adminKey},
-        body: JSON.stringify({ months, count })
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-key': adminKey },
+        body: JSON.stringify({ months, count }),
       })
       const j = await res.json()
-      if (!j.ok) { setMsg(j.error || 'No autorizado'); setResult(null); return }
+      if (!j.ok) {
+        setMsg(j.error || 'No autorizado')
+        setResult(null)
+        return
+      }
       setResult(j)
     } catch {
       setMsg('Error de red')
@@ -152,33 +164,53 @@ function AdminPanel() {
 
         <div className="w-field">
           <label>ADMIN_KEY</label>
-          <input value={adminKey} onChange={e=>setAdminKey(e.target.value)} placeholder="Tu clave de admin" />
+          <input
+            value={adminKey}
+            onChange={(e) => setAdminKey(e.target.value)}
+            placeholder="Tu clave de admin"
+          />
         </div>
 
         <div className="w-field">
           <label>Meses de validez</label>
-          <input type="number" min="1" max="12" value={months} onChange={e=>setMonths(Number(e.target.value))} />
+          <input
+            type="number"
+            min="1"
+            max="12"
+            value={months}
+            onChange={(e) => setMonths(Number(e.target.value))}
+          />
         </div>
 
         <div className="w-field">
           <label>Cantidad de llaves</label>
-          <input type="number" min="1" max="100" value={count} onChange={e=>setCount(Number(e.target.value))} />
+          <input
+            type="number"
+            min="1"
+            max="100"
+            value={count}
+            onChange={(e) => setCount(Number(e.target.value))}
+          />
         </div>
 
         <div className="w-actions">
-          <button className="w-primary" onClick={issue}>Generar</button>
+          <button className="w-primary" onClick={issue}>
+            Generar
+          </button>
         </div>
 
-        {msg && <div className="w-hint" style={{color:'#ff6'}}>{msg}</div>}
+        {msg && <div className="w-hint" style={{ color: '#ff6' }}>{msg}</div>}
 
         {result?.ok && (
           <div className="w-field">
             <label>Keys generadas</label>
             <div className="keys">
-              {result.keys.map((k, idx)=>(
+              {result.keys.map((k, idx) => (
                 <div key={idx} className="keyrow">
                   <code className="keytxt">{k.key}</code>
-                  <button className="w-btn" onClick={()=>navigator.clipboard.writeText(k.key)}>Copiar</button>
+                  <button className="w-btn" onClick={() => navigator.clipboard.writeText(k.key)}>
+                    Copiar
+                  </button>
                 </div>
               ))}
             </div>
@@ -190,10 +222,10 @@ function AdminPanel() {
   )
 }
 
-/* ======================== ROOM WIZARD ======================== */
+/* ======================== ROOM WIZARD (sin backend visible) ======================== */
 function RoomWizard() {
   const [room, setRoom] = useState(randomRoom())
-  const [ws, setWs] = useState('https://tiklive-63mk.onrender.com')
+  const ws = 'https://tiklive-63mk.onrender.com' // fijo
   const [top, setTop] = useState(3)
   const [user, setUser] = useState('')
 
@@ -211,7 +243,7 @@ function RoomWizard() {
   const openOverlay = () => { location.href = makeUrl() }
   const copyLink = async () => {
     const link = makeUrl()
-    try { await navigator.clipboard.writeText(link); alert('Link copiado:\n'+link) }
+    try { await navigator.clipboard.writeText(link); alert('Link copiado:\n' + link) }
     catch { prompt('Copia el link:', link) }
   }
 
@@ -223,19 +255,16 @@ function RoomWizard() {
         <div className="w-field">
           <label>Nombre de sala (room)</label>
           <div className="w-row">
-            <input value={room} onChange={e=>setRoom(e.target.value)} placeholder="miSala123" />
-            <button className="w-btn" onClick={()=>setRoom(randomRoom())}>Aleatorio</button>
+            <input value={room} onChange={(e) => setRoom(e.target.value)} placeholder="miSala123" />
+            <button className="w-btn" onClick={() => setRoom(randomRoom())}>
+              Aleatorio
+            </button>
           </div>
         </div>
 
         <div className="w-field">
-          <label>Backend (Render)</label>
-          <input value={ws} onChange={e=>setWs(e.target.value)} placeholder="https://tu-backend.onrender.com" />
-        </div>
-
-        <div className="w-field">
           <label>Top a mostrar</label>
-          <select value={top} onChange={e=>setTop(Number(e.target.value))}>
+          <select value={top} onChange={(e) => setTop(Number(e.target.value))}>
             <option value={1}>Top 1</option>
             <option value={3}>Top 3</option>
             <option value={5}>Top 5</option>
@@ -244,7 +273,11 @@ function RoomWizard() {
 
         <div className="w-field">
           <label>Usuario de TikTok (opcional, sin @)</label>
-          <input value={user} onChange={e=>setUser(e.target.value)} placeholder="sticx33" />
+          <input
+            value={user}
+            onChange={(e) => setUser(e.target.value)}
+            placeholder="sticx33"
+          />
         </div>
 
         <div className="w-actions">
@@ -252,34 +285,31 @@ function RoomWizard() {
           <button className="w-success" onClick={copyLink}>Copiar link</button>
         </div>
 
-        <div className="w-hint">Pega el link en <b>Browser Source</b> o **Captura de ventana** en tu software de streaming.</div>
+        <div className="w-hint">
+          Pega el link en <b>Browser Source</b> o usa <b>Captura de ventana</b> en OBS / TikTok Live Studio.
+        </div>
       </div>
     </div>
   )
 }
 
-/* ======================== OVERLAY (contador + top) ======================== */
+/* ======================== OVERLAY ======================== */
 function AuctionOverlay() {
   const q = useMemo(() => new URLSearchParams(location.search), [])
   const room = (q.get('room') || 'demo').trim()
-  const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || 'http://localhost:3000'
+  const RAW_WS = 'https://tiklive-63mk.onrender.com'
   const WS = sanitizeBaseUrl(RAW_WS)
-  const initialTitle = q.get('title') || 'Subasta'
-  const autoUser = (q.get('autouser') || '').replace(/^@+/, '').trim()
   const topN = Number(q.get('top') || 3)
+  const autoUser = (q.get('autouser') || '').replace(/^@+/, '').trim()
 
-  const [state, setState] = useState({ title: initialTitle, endsAt: 0, top: [] })
+  const [state, setState] = useState({ endsAt: 0, top: [] })
   const [now, setNow] = useState(Date.now())
   const [modal, setModal] = useState(null)
-  const [showPanel, setShowPanel] = useState(false) // panel de cambio de usuario (sin botón visible)
-  const [userInput, setUserInput] = useState('')
-  const socketRef = useRef(null)
 
   useEffect(() => {
-    const socket = io(WS, { transports:['websocket'], query:{ room } })
-    socketRef.current = socket
-    socket.on('state', st => setState(prev => ({ ...prev, ...st })))
-    socket.on('donation', d => setState(prev => ({ ...prev, top: d.top })))
+    const socket = io(WS, { transports: ['websocket'], query: { room } })
+    socket.on('state', (st) => setState((prev) => ({ ...prev, ...st })))
+    socket.on('donation', (d) => setState((prev) => ({ ...prev, top: d.top })))
     return () => socket.close()
   }, [WS, room])
 
@@ -295,7 +325,7 @@ function AuctionOverlay() {
   useEffect(() => {
     if (remain === 0 && (state.endsAt || 0) > 0) {
       const winner = state.top?.[0]
-      if (winner) setModal({ user: winner.user, total: winner.total, avatar: winner.avatar || '' })
+      if (winner) setModal({ user: winner.user, total: winner.total })
     }
   }, [remain, state.endsAt, state.top])
 
@@ -304,59 +334,23 @@ function AuctionOverlay() {
       if (!autoUser) return
       try {
         await fetch(`${WS}/${room}/user`, {
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ user: autoUser })
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user: autoUser }),
         })
       } catch {}
     })()
   }, [autoUser, WS, room])
-
-  // atajo para iniciar tiempo con 't'
-  useEffect(() => {
-    const onKey = async (e) => {
-      if (e.key.toLowerCase() === 't') {
-        const v = Number(prompt('Duración en segundos (ej. 120):') || 0)
-        if (v > 0) {
-          await fetch(`${WS}/${room}/auction/start`, {
-            method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ durationSec: v, title: state.title })
-          })
-          setModal(null)
-        }
-      }
-      // abrir/cerrar panel con 'u' (opcional) sin botón visible
-      if (e.key.toLowerCase() === 'u') {
-        setShowPanel(v => !v)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [WS, room, state.title])
-
-  const applyUser = async () => {
-    const clean = (userInput || '').trim().replace(/^@+/, '')
-    if (!clean) return alert('Escribe un usuario de TikTok (sin @).')
-    try {
-      const res = await fetch(`${WS}/${room}/user`, {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ user: clean })
-      })
-      const j = await res.json().catch(()=>({}))
-      if (j?.ok) { alert(`Conectando a @${clean}…`); setShowPanel(false); setModal(null) }
-      else { alert('No se pudo cambiar el usuario.') }
-    } catch { alert('No se pudo comunicar con el backend.') }
-  }
 
   return (
     <>
       <div className="panel">
         <div className="timer">{mm}:{ss}</div>
 
-        {/* Marco del ranking */}
         <div className="board">
           {state.top.slice(0, topN).map((d, i) => (
-            <div className="row" key={`${d.user}-${i}`}>
-              <div className={`badge ${i===1 ? 'silver' : i===2 ? 'bronze' : ''}`}>{i+1}</div>
+            <div className="row" key={d.user + i}>
+              <div className={`badge ${i===1 ? 'silver' : i===2 ? 'bronze' : ''}`}>{i + 1}</div>
               <img className="avatar" src={d.avatar || ''} alt="" />
               <div className="name" title={d.user}>{d.user}</div>
               <div className="coin">{d.total}</div>
@@ -364,23 +358,6 @@ function AuctionOverlay() {
           ))}
         </div>
       </div>
-
-      {showPanel && (
-        <div className="sheet" onClick={()=>setShowPanel(false)}>
-          <div className="card" onClick={e=>e.stopPropagation()}>
-            <h3>Conectar a otro usuario</h3>
-            <p>Escribe el <b>usuario de TikTok</b> (sin @) y el backend se reconectará.</p>
-            <div className="field">
-              <span>@</span>
-              <input placeholder="sticx33" value={userInput} onChange={e=>setUserInput(e.target.value)} />
-            </div>
-            <div className="actions">
-              <button onClick={()=>setShowPanel(false)}>Cancelar</button>
-              <button onClick={applyUser}>Conectar</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {modal && (
         <div className="winner">
@@ -392,7 +369,7 @@ function AuctionOverlay() {
               <span className="dot"></span><b>{modal.total}</b>&nbsp;diamantes
             </div>
             <div className="win-footer">¡Felicidades! 🎉</div>
-            <button className="win-close" onClick={()=>setModal(null)}>Cerrar</button>
+            <button className="win-close" onClick={() => setModal(null)}>Cerrar</button>
           </div>
         </div>
       )}
