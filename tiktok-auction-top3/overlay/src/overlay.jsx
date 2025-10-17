@@ -89,7 +89,7 @@ function AdminPanel() {
   const [result, setResult] = useState(null)
   const [msg, setMsg] = useState('')
 
-  const ADMIN_PIN = '1234' // Cambia este PIN por el que desees
+  const ADMIN_PIN = '0422' // Cambia este PIN por el que desees
 
   const checkPin = (e) => {
     e?.preventDefault?.()
