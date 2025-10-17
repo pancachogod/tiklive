@@ -82,11 +82,48 @@ function AdminPanel() {
   const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || 'http://localhost:3000'
   const WS = sanitizeBaseUrl(RAW_WS)
 
+  const [pin, setPin] = useState('')
+  const [authenticated, setAuthenticated] = useState(false)
   const [adminKey, setAdminKey] = useState('')
   const [months, setMonths] = useState(1)
   const [count, setCount] = useState(5)
   const [result, setResult] = useState(null)
   const [msg, setMsg] = useState('')
+
+  const ADMIN_PIN = '0422' // Cambia este PIN por el que desees
+
+  const checkPin = (e) => {
+    e?.preventDefault?.()
+    if (pin === ADMIN_PIN) {
+      setAuthenticated(true)
+      setMsg('')
+    } else {
+      setMsg('PIN incorrecto')
+    }
+  }
+
+  if (!authenticated) {
+    return (
+      <div className="gate">
+        <form className="g-card" onSubmit={checkPin}>
+          <div className="g-title">🔒 Panel Admin</div>
+          <div className="g-field">
+            <input 
+              type="password" 
+              value={pin} 
+              onChange={e=>setPin(e.target.value)} 
+              placeholder="Ingresa el PIN" 
+            />
+          </div>
+          {msg && <div className="g-msg">{msg}</div>}
+          <div className="g-actions">
+            <button className="g-primary" type="submit">Acceder</button>
+            <a className="g-ghost" href={`/?ws=${encodeURIComponent(WS)}`}>Volver al Wizard</a>
+          </div>
+        </form>
+      </div>
+    )
+  }
 
   const issue = async () => {
     setMsg('')
