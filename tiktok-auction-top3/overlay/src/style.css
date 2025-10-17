@@ -1,153 +1,149 @@
-/* ----------------------------------------------------------
-   BASE / RESET
----------------------------------------------------------- */
+/* ====== RESET & BASE ====== */
 :root { color-scheme: dark; }
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
-body{
+body {
   margin: 0;
-  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-  background: radial-gradient(160% 140% at 50% -30%, #182132, #0e121b);
-  color: #fff;
+  background: transparent;  /* deja ver el fondo del stream */
+  font-family: Inter, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, system-ui, sans-serif;
 }
 
-/* ----------------------------------------------------------
-   OVERLAY: CONTADOR + TOP (estilo foto)
----------------------------------------------------------- */
+/* ====== LAYOUT PRINCIPAL ====== */
 .panel{
-  position: fixed;
-  top: 40px;
-  left: 50%;
-  transform: translateX(-50%);
+  width: min(560px, 92vw);
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 22px;
-  z-index: 20;
+  gap: 16px;
+  padding: 8px;
 }
 
-/* Contador grande */
+/* ====== CONTADOR (dentro de un cuadro) ====== */
 .timer{
-  position: relative;
-  display: inline-block;
-  padding: 36px 72px;
-  border-radius: 28px;
-  background: #343a40;
-  box-shadow:
-    0 14px 28px rgba(0,0,0,.35),
-    inset 0 0 0 2px rgba(0,0,0,.15);
-  color: #ff3b32;
-  font-family: "Digital-7","DS-Digital","Orbitron", ui-sans-serif, system-ui;
+  text-align: center;
+  font-size: clamp(48px, 11vw, 86px);
   font-weight: 900;
-  font-size: 110px;
-  letter-spacing: 6px;
-  line-height: 1;
-  text-shadow:
-    0 0 12px rgba(255,60,50,.9),
-    0 0 26px rgba(255,60,50,.55);
-}
-.timer::before{
-  content: "";
-  position: absolute; inset: 12px;
+  letter-spacing: 1px;
+  color: #00F0FF;
+  padding: 18px 24px;
   border-radius: 22px;
   background:
-    radial-gradient(120% 80% at 50% 25%, #000000b0 15%, #7a1e24 55%, #2a0f12 100%);
+    radial-gradient(120% 120% at 50% 10%, rgba(0,240,255,.25), rgba(0,0,0,.2) 60%) ,
+    linear-gradient(#0b1224, #121a31);
+  border: 3px solid rgba(0,240,255,.35);
   box-shadow:
-    inset 0 0 0 2px rgba(255,50,50,.35),
-    inset 0 0 38px rgba(255,50,50,.28);
-  z-index: -1;
+    0 0 34px rgba(0,240,255,.35),
+    inset 0 0 40px rgba(0,240,255,.15);
+  text-shadow:
+    0 0 12px rgba(0,240,255,.7),
+    0 0 22px rgba(0,240,255,.45);
 }
 
-/* Engranaje fuera del contador (arriba-izquierda) */
-.gear{
-  position: fixed;
-  top: 12px; left: 12px;
-  background: rgba(255,255,255,.12);
-  border: 1px solid rgba(255,255,255,.22);
-  color: #fff;
-  border-radius: 12px;
-  padding: 8px 12px;
-  cursor: pointer;
-  font-size: 22px;
-  z-index: 9999;
-  transition: background .2s ease, transform .1s ease;
+/* ====== MARCO DEL RANKING ====== */
+.board{
+  padding: 12px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #0e152b 0%, #0a1022 100%);
+  border: 2px solid rgba(255,255,255,.06);
+  box-shadow:
+    0 10px 28px rgba(0,0,0,.45),
+    inset 0 0 12px rgba(255,255,255,.03);
 }
-.gear:hover{ background: rgba(255,255,255,.22); transform: translateY(-1px); }
 
-/* Tarjeta Top donadores (estilo imagen) */
+/* ====== FILAS DEL TOP ====== */
 .row{
-  display: flex; align-items: center; gap: 18px;
-  padding: 18px 24px;
-  min-width: 760px;
-  background: linear-gradient(180deg, #2f3640, #313949);
-  border-radius: 34px;
-  box-shadow: 0 10px 24px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.06);
+  display: grid;
+  grid-template-columns: 56px 56px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: #1a2744;
+  border: 2px solid rgba(255,255,255,.06);
 }
+.row + .row{ margin-top: 12px; }
+
+/* Posiciones */
 .badge{
-  width: 96px; height: 96px; flex: 0 0 96px;
-  display:flex; align-items:center; justify-content:center;
-  border-radius:50%;
-  background: radial-gradient(circle at 30% 30%, #fff6, #0000),
-             linear-gradient(180deg, #ffd84a, #d9a400);
-  color:#111; font-weight:900; font-size:44px;
-  box-shadow: inset 0 0 0 3px rgba(0,0,0,.15), 0 4px 10px rgba(0,0,0,.35);
+  width: 44px; height: 44px;
+  border-radius: 999px;
+  display: grid; place-items: center;
+  font-weight: 900; font-size: 20px;
+  color: #111;
+  background: radial-gradient(circle at 35% 35%, #ffe37a, #ffcd25);
+  box-shadow: 0 4px 14px rgba(255,205,37,.45);
 }
 .badge.silver{
-  background: radial-gradient(circle at 30% 30%, #fff6, #0000),
-             linear-gradient(180deg, #dfe3ea, #aeb6c4);
+  background: radial-gradient(circle at 35% 35%, #e8ebef, #cfd7e3);
+  box-shadow: 0 4px 14px rgba(207,215,227,.35);
 }
 .badge.bronze{
-  background: radial-gradient(circle at 30% 30%, #fff6, #0000),
-             linear-gradient(180deg, #e8a56a, #b46a2b);
+  background: radial-gradient(circle at 35% 35%, #ffc48b, #ff8f3a);
+  box-shadow: 0 4px 14px rgba(255,143,58,.35);
 }
+
+/* Avatar */
 .avatar{
-  width:100px; height:100px; flex:0 0 100px;
-  border-radius:50%; object-fit:cover;
-  box-shadow: 0 2px 8px rgba(0,0,0,.35), inset 0 0 0 3px rgba(255,255,255,.12);
+  width: 56px; height: 56px;
+  border-radius: 999px;
+  object-fit: cover;
+  border: 3px solid rgba(255,255,255,.15);
+  box-shadow: 0 2px 10px rgba(0,0,0,.45);
 }
+
+/* Nombre: permite líneas múltiples y palabras largas */
 .name{
-  flex:1; color:#fff; font-weight:800; font-size:56px; letter-spacing:.5px;
-  text-shadow: 0 2px 4px rgba(0,0,0,.35);
-  overflow:hidden; white-space:nowrap; text-overflow:ellipsis;
+  color: #ffffff;
+  font-weight: 800;
+  font-size: 22px;
+  line-height: 1.12;
+  white-space: normal;           /* <-- permite varias líneas */
+  word-break: break-word;        /* <-- corta palabras muy largas */
+  overflow-wrap: anywhere;       /* <-- asegura que siempre se vea completo */
 }
+
+/* Monedas a la derecha */
 .coin{
-  display:flex; align-items:center; gap:16px;
-  color:#fff; font-weight:900; font-size:54px; min-width:120px; justify-content:flex-end;
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #ffd54a;
+  font-weight: 900;
+  font-size: 22px;
+  text-shadow: 0 0 6px rgba(255,213,74,.45);
 }
 .coin::before{
-  content:"";
-  width:44px; height:44px; border-radius:50%;
-  background: radial-gradient(circle at 30% 30%, #fff8, #0000),
-             linear-gradient(180deg, #ffd84a, #d9a400);
-  box-shadow: inset 0 0 0 2px rgba(0,0,0,.25);
+  content: "🟡";
+  filter: drop-shadow(0 0 4px rgba(255,213,74,.45));
 }
 
-/* ----------------------------------------------------------
-   PANEL CAMBIO DE USUARIO + MODAL GANADOR
----------------------------------------------------------- */
-.sheet{ position:fixed; inset:0; background:rgba(0,0,0,.4); display:flex; align-items:center; justify-content:center; z-index:9998 }
-.card{
-  width:min(92vw,420px);
-  background:#111a; backdrop-filter:blur(14px);
-  color:#fff; border:1px solid rgba(255,255,255,.15); border-radius:16px; padding:18px;
+/* Opcional: ganador modal si ya lo usas */
+.winner{
+  position: fixed; inset: 0;
+  display: grid; place-items: center;
+  background: rgba(0,0,0,.55);
 }
-.card h3{ margin:0 0 8px 0 }
-.field{ display:flex; gap:6px; align-items:center; background:#1b2232; border:1px solid rgba(255,255,255,.1); border-radius:10px; padding:8px 10px }
-.field span{ opacity:.7 }
-.field input{ background:transparent; border:0; outline:none; color:#fff; width:100% }
-.actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:12px }
-.actions button{ background:#222; border:1px solid rgba(255,255,255,.15); color:#fff; padding:8px 12px; border-radius:10px; cursor:pointer }
-.actions button:last-child{ background:#2b6aff; border-color:#2b6aff }
+.win-card{
+  width: min(520px, 92vw);
+  border-radius: 18px;
+  padding: 22px;
+  background: linear-gradient(180deg, #0e152b, #0a1022);
+  border: 2px solid rgba(255,255,255,.08);
+  color: #fff;
+  text-align: center;
+  box-shadow: 0 10px 30px rgba(0,0,0,.5);
+}
+.trophy{ font-size: 44px; }
+.win-title{ font-size: 28px; font-weight: 900; margin: 4px 0 6px; }
+.win-name{ font-size: 24px; font-weight: 800; }
+.win-coins{ margin-top: 6px; font-size: 18px; color:#ffd54a; }
+.win-close{
+  margin-top: 12px; padding: 10px 16px;
+  border: 0; border-radius: 12px; font-weight: 800;
+  background: #00e5ff; color: #0a1226; cursor: pointer;
+}
 
-.winner{ position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.4); z-index:9997 }
-.win-card{ width:min(92vw,420px); background:#ffdf3b; color:#111; border-radius:18px; padding:18px; box-shadow:0 10px 30px rgba(0,0,0,.35); text-align:center; border:2px solid #f3c300 }
-.trophy{ font-size:40px; margin-bottom:6px }
-.win-title{ font-size:28px; font-weight:900; margin-bottom:6px }
-.win-name{ font-size:22px; font-weight:800; color:#991b1b; margin-bottom:10px }
-.win-coins{ display:inline-flex; align-items:center; gap:8px; font-weight:800; background:#ffe97a; border:1px solid #e3b400; padding:8px 12px; border-radius:12px }
-.win-coins .dot{ width:14px; height:14px; border-radius:50%; background: radial-gradient(circle at 30% 30%, #fff9, #0000), linear-gradient(180deg,#ffe07a,#d8a41d); border:1px solid rgba(0,0,0,.25) }
-.win-footer{ margin-top:12px; font-weight:700 }
-.win-close{ margin-top:12px; background:#111; color:#fff; border:0; padding:8px 12px; border-radius:10px; cursor:pointer }
 
 /* ----------------------------------------------------------
    LICENSE GATE (Canjear código)
