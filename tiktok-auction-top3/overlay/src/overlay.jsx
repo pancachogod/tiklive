@@ -222,6 +222,13 @@ function AuctionOverlay() {
     await startAuction(next)
   }
 
+  const getBorderColor = (index) => {
+    if (index === 0) return '#FFD700'
+    if (index === 1) return '#C0C0C0'
+    if (index === 2) return '#CD7F32'
+    return '#0ff'
+  }
+
   return (
     <>
       {/* Botón Engranaje */}
@@ -229,10 +236,12 @@ function AuctionOverlay() {
 
       {/* Panel compacto en vivo */}
       <div className="panel">
-        <div className="timer">{mm}:{ss}</div>
+        <div className="timer-box">
+          <div className="timer">{mm}:{ss}</div>
+        </div>
         <div className="board">
           {state.top.slice(0, topN).map((d, i) => (
-            <div className="row" key={d.user + i}>
+            <div className="row" key={d.user + i} style={{borderColor: getBorderColor(i)}}>
               <div className={`badge ${i===1 ? 'silver' : i===2 ? 'bronze' : ''}`}>{i+1}</div>
               <img className="avatar" src={d.avatar || ''} alt="" />
               <div className="name" title={d.user}>{d.user}</div>
