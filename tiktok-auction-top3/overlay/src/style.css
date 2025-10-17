@@ -23,7 +23,7 @@ a {
   align-items: center;
   background: transparent;
   padding: 15px 20px;
-  width: 480px; 
+  width: 520px; 
   margin: 0 auto;
   min-height: 100vh;
   padding-top: 60px;
@@ -32,33 +32,34 @@ a {
 /* Contenedor principal con fondo azul oscuro - TODO EN UNO */
 .panel-container {
   background: linear-gradient(135deg, #0d1f33 0%, #0a1625 100%);
-  border: 3px solid #00d9ff;
-  border-radius: 24px;
-  padding: 24px;
-  box-shadow: 0 0 40px rgba(0, 217, 255, 0.6), inset 0 0 30px rgba(0, 100, 200, 0.2);
+  border: 4px solid #00d9ff;
+  border-radius: 28px;
+  padding: 28px;
+  box-shadow: 0 0 50px rgba(0, 217, 255, 0.7), inset 0 0 40px rgba(0, 100, 200, 0.25);
   width: 100%;
   backdrop-filter: blur(10px);
 }
 
-/* Caja del timer */
+/* Caja del timer - SIN borde separado, integrado */
 .timer-box {
   background: transparent;
-  border: 3px solid #00d9ff;
-  border-radius: 18px;
-  padding: 24px 40px;
-  margin-bottom: 20px;
-  box-shadow: 0 0 20px rgba(0, 217, 255, 0.4);
+  border: none;
+  border-radius: 0;
+  padding: 16px 0;
+  margin-bottom: 24px;
+  box-shadow: none;
   width: 100%;
   text-align: center;
+  border-bottom: 2px solid rgba(0, 217, 255, 0.3);
 }
 
 .delay-label {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 800;
   color: #FFD700;
   text-transform: uppercase;
   letter-spacing: 2px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   text-shadow: 0 0 10px rgba(255, 215, 0, 0.8);
   animation: pulse 1.5s ease-in-out infinite;
 }
@@ -69,78 +70,78 @@ a {
 }
 
 .timer {
-  font-size: 72px; 
+  font-size: 80px; 
   font-weight: 900; 
   color: #00faff;
-  text-shadow: 0 0 25px #00d9ff, 0 0 50px #0099ff, 0 0 75px #0066ff;
-  letter-spacing: 8px;
+  text-shadow: 0 0 30px #00d9ff, 0 0 60px #0099ff, 0 0 90px #0066ff;
+  letter-spacing: 10px;
 }
 
 .board { 
   width: 100%; 
   display: flex; 
   flex-direction: column; 
-  gap: 14px; 
+  gap: 16px; 
 }
 
 .row {
   display: flex; 
   align-items: center; 
   background: linear-gradient(135deg, #1e3145 0%, #152332 100%);
-  border-radius: 18px; 
-  padding: 14px 18px; 
-  border: 3px solid;
+  border-radius: 20px; 
+  padding: 16px 20px; 
+  border: 4px solid;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
-  min-height: 70px;
+  min-height: 76px;
 }
 
 .badge { 
-  width: 42px; 
-  height: 42px; 
-  min-width: 42px;
+  width: 46px; 
+  height: 46px; 
+  min-width: 46px;
   border-radius: 50%; 
   background: gold; 
   color: #000;
   font-weight: 900; 
-  font-size: 20px; 
+  font-size: 22px; 
   display: flex; 
   align-items: center; 
   justify-content: center; 
-  margin-right: 14px;
-  box-shadow: 0 3px 10px rgba(0,0,0,0.5);
+  margin-right: 16px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.6);
 }
 .badge.silver { background: #C0C0C0; } 
 .badge.bronze { background: #CD7F32; }
 
 .avatar { 
-  width: 48px; 
-  height: 48px;
-  min-width: 48px;
+  width: 52px; 
+  height: 52px;
+  min-width: 52px;
   border-radius: 50%; 
   object-fit: cover; 
-  margin-right: 14px; 
-  border: 3px solid #FFD700;
-  box-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+  margin-right: 16px; 
+  border: 4px solid #FFD700;
+  box-shadow: 0 0 12px rgba(255, 215, 0, 0.6);
 }
 
 .name { 
   flex: 1; 
   font-weight: 700; 
-  font-size: 18px; 
+  font-size: 19px; 
   color: #fff;
   white-space: nowrap; 
   overflow: hidden; 
   text-overflow: ellipsis;
   text-shadow: 0 2px 4px rgba(0,0,0,0.5);
-  min-width: 0; /* Importante para que funcione el ellipsis */
-  padding-right: 10px;
+  min-width: 0;
+  padding-right: 12px;
 }
 
 .coin { 
   font-weight: 900; 
   color: #FFD700; 
-  font-size: 20px;
-  text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+  font-size: 21px;
+  text-shadow: 0 0 12px rgba(255, 215, 0, 0.6);
   white-space: nowrap;
   display: flex;
   align-items: center;
