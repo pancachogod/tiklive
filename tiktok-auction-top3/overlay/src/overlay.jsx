@@ -188,7 +188,7 @@ function AdminPanel() {
 function AuctionOverlay() {
   const q = useMemo(() => new URLSearchParams(location.search), [])
   const room = (q.get('room') || 'demo').trim()
-  const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || 'http://localhost:3000'
+  const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || 'https://tiklive-63mk.onrender.com'
   const WS = sanitizeBaseUrl(RAW_WS)
   const initialTitle = q.get('title') || 'Subasta'
   const autoUser = (q.get('autouser') || '').replace(/^@+/, '').trim()
