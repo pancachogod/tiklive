@@ -6,7 +6,7 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import { WebcastPushConnection } from 'tiktok-live-connector';
 import pg from 'pg';
-import { createClient } from '@supabase/supabase-js'
+
 
 const { Pool } = pg;
 
@@ -35,20 +35,16 @@ const io = new Server(server, {
 });
 
 /* ================== POSTGRESQL DATABASE (SUPABASE) ================== */
-
-const supabaseUrl = 'postgresql://postgres:X5GHjtRivMZVwl7b@db.uvljysehhyywpwmpfxuk.supabase.co:5432/postgres'
-const supabaseKey = process.env.SUPABASE_KEY
-const supabase = createClient(supabaseUrl, supabaseKey)
-
-
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
-    rejectUnauthorized: false
+    rejectUnauthorized: false,
+    require: true
   },
-  connectionTimeoutMillis: 20000, // 20 segundos para Supabase
+  connectionTimeoutMillis: 30000, // 30 segundos
   idleTimeoutMillis: 30000,
-  max: 10 // Supabase free tier tiene límite de conexiones
+  max: 5, // Reducido para evitar límites
+  allowExitOnIdle: false
 });
 
 // Manejador de errores del pool
