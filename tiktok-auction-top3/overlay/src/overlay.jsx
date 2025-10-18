@@ -55,7 +55,12 @@ function OverlayWithLicense({ children }) {
         if (httpOK && data?.ok) {
           localStorage.setItem('LIC_KEY', k)
           setOk(true)
-        } else setMsg('Código inválido o expirado.')
+        } else {
+          const error = data?.error || 'invalid'
+          if (error === 'license-expired') setMsg('Licencia expirada.')
+          else if (error === 'license-revoked') setMsg('Licencia revocada.')
+          else setMsg('Código inválido.')
+        }
       } catch { setMsg('No se pudo contactar con el servidor.') }
     }
     return (
@@ -90,7 +95,7 @@ function AdminPanel() {
   const [result, setResult] = useState(null)
   const [msg, setMsg] = useState('')
 
-  const ADMIN_PIN = '0422' // Cambia este PIN por el que desees
+  const ADMIN_PIN = '1234' // Cambia este PIN
 
   const checkPin = (e) => {
     e?.preventDefault?.()
@@ -146,7 +151,7 @@ function AdminPanel() {
 
         <div className="w-field">
           <label>ADMIN_KEY</label>
-          <input value={adminKey} onChange={e=>setAdminKey(e.target.value)} placeholder="Tu clave de admin" />
+          <input value={adminKey} onChange={e=>setAdminKey(e.target.value)} placeholder="pancacho123" />
         </div>
 
         <div className="w-field">
@@ -189,7 +194,7 @@ function AdminPanel() {
 function AuctionOverlay() {
   const q = useMemo(() => new URLSearchParams(location.search), [])
   const room = (q.get('room') || 'demo').trim()
-  const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || 'https://tiklive-63mk.onrender.com'
+  const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || 'http://localhost:3000'
   const WS = sanitizeBaseUrl(RAW_WS)
   const initialTitle = q.get('title') || 'Subasta'
   const autoUser = (q.get('autouser') || '').replace(/^@+/, '').trim()
