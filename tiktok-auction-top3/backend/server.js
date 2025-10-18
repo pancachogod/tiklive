@@ -1,6 +1,9 @@
 // backend/server.js
-import dns from 'dns';
-dns.setDefaultResultOrder('ipv4first');
+// server.js (primeras líneas)
+import dns from 'dns'
+dns.setDefaultResultOrder('ipv4first')     // <- debe ir antes de crear/importar el pool
+
+import { pool, initDb } from './db.js'     // importa tu pool DESPUÉS de forzar IPv4
 import 'dotenv/config';
 import express from 'express';
 import http from 'http';
