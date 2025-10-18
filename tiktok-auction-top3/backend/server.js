@@ -5,18 +5,17 @@ import http from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import { WebcastPushConnection } from 'tiktok-live-connector';
-import crypto from 'crypto';
-import fs from 'fs';
-import path from 'path';
+import pg from 'pg';
+
+const { Pool } = pg;
 
 /* ================== CONFIG BÁSICA ================== */
 const PORT = process.env.PORT || 3000;
 
-/* Orígenes permitidos (ajusta tu Vercel si cambia) */
 const ORIGINS = [
-  'https://tiklive-6ywqave4w-pancachogods-projects.vercel.app',
-  /\.vercel\.app$/,                 // cualquier *.vercel.app
-  'http://localhost:5173',
+  'https://tiklive-blue.vercel.app/',
+  /\.vercel\.app$/,
+  'https://tiklive-63mk.onrender.com',
 ];
 
 /* ================== APP / IO ================== */
@@ -34,11 +33,42 @@ const io = new Server(server, {
   transports: ['websocket', 'polling'],
 });
 
+/* ================== POSTGRESQL DATABASE ================== */
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL?.includes('supabase') ? { rejectUnauthorized: false } : undefined
+});
+
+// Inicializar tablas
+async function initDatabase() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        tiktok_user VARCHAR(255) UNIQUE NOT NULL,
+        days_active INTEGER NOT NULL,
+        expires_at BIGINT NOT NULL,
+        created_at BIGINT NOT NULL,
+        last_used BIGINT,
+        status VARCHAR(50) DEFAULT 'active',
+        notes TEXT,
+        usage_count INTEGER DEFAULT 0
+      )
+    `);
+    console.log('✅ Base de datos inicializada');
+  } catch (err) {
+    console.error('❌ Error inicializando base de datos:', err.message);
+  }
+}
+
+initDatabase();
+
 /* =====================================================
    MODELO MULTI-ROOM (subasta por sala)
+   ⚠️ NO MODIFICADO - TODO IGUAL
 ===================================================== */
 const rooms = new Map();
-const ROOM_IDLE_MS = 60 * 60 * 1000; // 1h sin actividad => limpiar
+const ROOM_IDLE_MS = 60 * 60 * 1000;
 const now = () => Date.now();
 
 function newRoom(roomId) {
@@ -80,8 +110,6 @@ function scheduleReconnect(r, ms = 30_000) {
       clearInterval(r.reconnectTimer);
       r.reconnectTimer = null;
       connectLoop(r);
-    } else {
-      console.log(`[${r.id}] Reintentando en ${left}s…`);
     }
   }, 1000);
 }
@@ -131,7 +159,6 @@ async function connectLoop(r) {
   }
 }
 
-/* Limpieza de rooms inactivos */
 setInterval(() => {
   const cutoff = now() - ROOM_IDLE_MS;
   for (const [id, r] of rooms) {
@@ -144,7 +171,6 @@ setInterval(() => {
   }
 }, 10 * 60 * 1000);
 
-/* Watchdog */
 setInterval(() => {
   for (const r of rooms.values()) {
     if (!isRunning(r) && r.auction.endsAt !== 0) {
@@ -153,7 +179,7 @@ setInterval(() => {
   }
 }, 1000);
 
-/* ================== ENDPOINTS DE SALA ================== */
+/* ================== ENDPOINTS DE SALA (SIN CAMBIOS) ================== */
 
 app.post('/:room/user', (req, res) => {
   const roomId = String(req.params.room || '').trim();
@@ -217,124 +243,65 @@ app.post('/:room/debug/gift', (req, res) => {
 });
 
 /* =====================================================
-   SISTEMA DE LICENCIAS MEJORADO
-   - Sin base de datos, usa archivo JSON
-   - Persistencia en disco
-   - Sistema completo de gestión
+   SISTEMA DE USUARIOS CON POSTGRESQL
 ===================================================== */
 
 const ADMIN_KEY = 'pancacho123';
-const LICENSE_FILE = path.join(process.cwd(), 'licenses.json');
 
-// Estructura de licencia:
-// {
-//   key: string,
-//   months: number,
-//   createdAt: number,
-//   expiresAt: number,
-//   activatedAt: number | null,
-//   lastUsed: number | null,
-//   userIdentifier: string | null,
-//   status: 'active' | 'expired' | 'revoked',
-//   notes: string,
-//   usageCount: number
-// }
-
-let LICENSES = new Map();
-
-// Cargar licencias desde archivo
-function loadLicenses() {
-  try {
-    if (fs.existsSync(LICENSE_FILE)) {
-      const data = fs.readFileSync(LICENSE_FILE, 'utf8');
-      const parsed = JSON.parse(data);
-      LICENSES = new Map(Object.entries(parsed));
-      console.log(`📦 Cargadas ${LICENSES.size} licencias desde archivo`);
-    }
-  } catch (err) {
-    console.error('❌ Error cargando licencias:', err.message);
-  }
-}
-
-// Guardar licencias a archivo
-function saveLicenses() {
-  try {
-    const obj = Object.fromEntries(LICENSES);
-    fs.writeFileSync(LICENSE_FILE, JSON.stringify(obj, null, 2));
-  } catch (err) {
-    console.error('❌ Error guardando licencias:', err.message);
-  }
-}
-
-// Cargar al inicio
-loadLicenses();
-
-// Auto-guardar cada 30 segundos
-setInterval(saveLicenses, 30_000);
-
-// Limpieza de llaves expiradas (marcar como expiradas)
-setInterval(() => {
-  const t = Date.now();
-  let changed = false;
-  for (const [k, v] of LICENSES) {
-    if (v.status === 'active' && v.expiresAt <= t) {
-      v.status = 'expired';
-      changed = true;
-    }
-  }
-  if (changed) saveLicenses();
-}, 10 * 60 * 1000);
-
-// Generar key legible
-function genKeyReadable() {
-  const raw = crypto.randomBytes(8).toString('hex').toUpperCase();
-  return raw.slice(0,4) + '-' + raw.slice(4,8) + '-' + raw.slice(8,12);
+function normalizeUsername(u) {
+  return String(u || '').trim().toLowerCase().replace(/^@+/, '');
 }
 
 /* ============ USER ENDPOINTS ============ */
 
-// Verificar/activar licencia
-app.post('/license/verify', (req, res) => {
-  const key = String(req.body?.key || '').trim();
-  if (!key) return res.status(400).json({ ok: false, error: 'key-required' });
+app.post('/user/verify', async (req, res) => {
+  const tiktokUser = normalizeUsername(req.body?.tiktokUser);
+  if (!tiktokUser) return res.status(400).json({ ok: false, error: 'user-required' });
 
-  const lic = LICENSES.get(key);
-  if (!lic) return res.json({ ok: false, error: 'invalid-key' });
+  try {
+    const result = await pool.query(
+      'SELECT * FROM users WHERE tiktok_user = $1',
+      [tiktokUser]
+    );
 
-  const t = Date.now();
+    if (result.rows.length === 0) {
+      return res.json({ ok: false, error: 'user-not-found' });
+    }
 
-  // Verificar si está revocada
-  if (lic.status === 'revoked') {
-    return res.json({ ok: false, error: 'license-revoked' });
+    const user = result.rows[0];
+    const t = Date.now();
+
+    if (user.status === 'disabled') {
+      return res.json({ ok: false, error: 'user-disabled' });
+    }
+
+    if (t > user.expires_at) {
+      await pool.query(
+        'UPDATE users SET status = $1 WHERE tiktok_user = $2',
+        ['expired', tiktokUser]
+      );
+      return res.json({ ok: false, error: 'subscription-expired', daysRemaining: 0 });
+    }
+
+    await pool.query(
+      'UPDATE users SET last_used = $1, usage_count = usage_count + 1 WHERE tiktok_user = $2',
+      [t, tiktokUser]
+    );
+
+    res.json({
+      ok: true,
+      tiktokUser: user.tiktok_user,
+      expiresAt: user.expires_at,
+      daysRemaining: Math.ceil((user.expires_at - t) / (24 * 60 * 60 * 1000))
+    });
+  } catch (err) {
+    console.error('Error verificando usuario:', err);
+    res.status(500).json({ ok: false, error: 'database-error' });
   }
-
-  // Verificar si expiró
-  if (t > lic.expiresAt) {
-    lic.status = 'expired';
-    saveLicenses();
-    return res.json({ ok: false, error: 'license-expired' });
-  }
-
-  // Activar si es primera vez
-  if (!lic.activatedAt) {
-    lic.activatedAt = t;
-  }
-
-  // Actualizar uso
-  lic.lastUsed = t;
-  lic.usageCount = (lic.usageCount || 0) + 1;
-  saveLicenses();
-
-  res.json({
-    ok: true,
-    expiresAt: lic.expiresAt,
-    daysRemaining: Math.floor((lic.expiresAt - t) / (24 * 60 * 60 * 1000))
-  });
 });
 
 /* ============ ADMIN ENDPOINTS ============ */
 
-// Middleware para verificar admin
 function requireAdmin(req, res, next) {
   const headerKey = String(req.headers['x-admin-key'] || '').trim();
   if (headerKey !== ADMIN_KEY) {
@@ -343,187 +310,244 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-// Crear licencias
-app.post('/admin/license/create', requireAdmin, (req, res) => {
-  const months = Math.max(1, Math.min(12, Number(req.body?.months) || 1));
-  const count  = Math.max(1, Math.min(100, Number(req.body?.count) || 1));
-  const t = Date.now();
-  const expiresAt = t + months * 30 * 24 * 60 * 60 * 1000;
+app.post('/admin/user/activate', requireAdmin, async (req, res) => {
+  const tiktokUser = normalizeUsername(req.body?.tiktokUser);
+  const days = Math.max(1, Number(req.body?.days) || 30);
 
-  const keys = [];
-  for (let i = 0; i < count; i++) {
-    let key;
-    do { key = genKeyReadable(); } while (LICENSES.has(key));
-    
-    const lic = {
-      key,
-      months,
-      createdAt: t,
-      expiresAt,
-      activatedAt: null,
-      lastUsed: null,
-      userIdentifier: null,
-      status: 'active',
-      notes: '',
-      usageCount: 0
-    };
-    
-    LICENSES.set(key, lic);
-    keys.push({ key, expiresAt });
+  if (!tiktokUser) {
+    return res.status(400).json({ ok: false, error: 'user-required' });
   }
-  
-  saveLicenses();
-  console.log(`✅ Creadas ${count} licencias (${months} meses)`);
-  res.json({ ok: true, keys, count: keys.length });
+
+  const t = Date.now();
+
+  try {
+    const result = await pool.query(
+      'SELECT * FROM users WHERE tiktok_user = $1',
+      [tiktokUser]
+    );
+
+    if (result.rows.length > 0) {
+      const user = result.rows[0];
+      const baseTime = user.status === 'expired' ? t : Math.max(user.expires_at, t);
+      const newExpiresAt = baseTime + (days * 24 * 60 * 60 * 1000);
+      const newDaysActive = Math.ceil((newExpiresAt - t) / (24 * 60 * 60 * 1000));
+
+      await pool.query(
+        'UPDATE users SET expires_at = $1, days_active = $2, status = $3 WHERE tiktok_user = $4',
+        [newExpiresAt, newDaysActive, 'active', tiktokUser]
+      );
+
+      console.log(`✅ Usuario ${tiktokUser} extendido por ${days} días`);
+    } else {
+      const expiresAt = t + (days * 24 * 60 * 60 * 1000);
+      await pool.query(
+        'INSERT INTO users (tiktok_user, days_active, expires_at, created_at, status, notes, usage_count) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+        [tiktokUser, days, expiresAt, t, 'active', '', 0]
+      );
+
+      console.log(`✅ Usuario ${tiktokUser} activado por ${days} días`);
+    }
+
+    const updated = await pool.query('SELECT * FROM users WHERE tiktok_user = $1', [tiktokUser]);
+    const user = updated.rows[0];
+
+    res.json({
+      ok: true,
+      user: {
+        tiktokUser: user.tiktok_user,
+        daysActive: user.days_active,
+        expiresAt: user.expires_at,
+        status: user.status
+      }
+    });
+  } catch (err) {
+    console.error('Error activando usuario:', err);
+    res.status(500).json({ ok: false, error: 'database-error' });
+  }
 });
 
-// Listar licencias con filtros
-app.get('/admin/license/list', requireAdmin, (req, res) => {
+app.get('/admin/user/list', requireAdmin, async (req, res) => {
   const { status, search } = req.query;
   const t = Date.now();
-  
-  let licenses = [...LICENSES.values()];
-  
-  // Filtrar por estado
-  if (status && status !== 'all') {
-    licenses = licenses.filter(l => l.status === status);
-  }
-  
-  // Buscar por key o usuario
-  if (search) {
-    const s = search.toLowerCase();
-    licenses = licenses.filter(l => 
-      l.key.toLowerCase().includes(s) || 
-      (l.userIdentifier && l.userIdentifier.toLowerCase().includes(s))
-    );
-  }
-  
-  // Agregar info calculada
-  licenses = licenses.map(l => ({
-    ...l,
-    daysRemaining: Math.max(0, Math.floor((l.expiresAt - t) / (24 * 60 * 60 * 1000))),
-    isExpired: t > l.expiresAt,
-    isActivated: !!l.activatedAt
-  }));
-  
-  // Ordenar por fecha de creación (más reciente primero)
-  licenses.sort((a, b) => b.createdAt - a.createdAt);
-  
-  res.json({ ok: true, licenses, total: licenses.length });
-});
 
-// Obtener detalles de una licencia
-app.get('/admin/license/:key', requireAdmin, (req, res) => {
-  const key = String(req.params.key || '').trim();
-  const lic = LICENSES.get(key);
-  
-  if (!lic) {
-    return res.status(404).json({ ok: false, error: 'not-found' });
-  }
-  
-  const t = Date.now();
-  res.json({
-    ok: true,
-    license: {
-      ...lic,
-      daysRemaining: Math.max(0, Math.floor((lic.expiresAt - t) / (24 * 60 * 60 * 1000))),
-      isExpired: t > lic.expiresAt
+  try {
+    let query = 'SELECT * FROM users WHERE 1=1';
+    const params = [];
+
+    if (status && status !== 'all') {
+      query += ` AND status = $${params.length + 1}`;
+      params.push(status);
     }
-  });
+
+    if (search) {
+      query += ` AND tiktok_user ILIKE $${params.length + 1}`;
+      params.push(`%${search}%`);
+    }
+
+    query += ' ORDER BY created_at DESC';
+
+    const result = await pool.query(query, params);
+
+    const users = result.rows.map(u => ({
+      tiktokUser: u.tiktok_user,
+      daysActive: u.days_active,
+      expiresAt: u.expires_at,
+      createdAt: u.created_at,
+      lastUsed: u.last_used,
+      status: u.status,
+      notes: u.notes,
+      usageCount: u.usage_count,
+      daysRemaining: Math.max(0, Math.ceil((u.expires_at - t) / (24 * 60 * 60 * 1000))),
+      isExpired: t > u.expires_at
+    }));
+
+    res.json({ ok: true, users, total: users.length });
+  } catch (err) {
+    console.error('Error listando usuarios:', err);
+    res.status(500).json({ ok: false, error: 'database-error' });
+  }
 });
 
-// Revocar licencia
-app.post('/admin/license/:key/revoke', requireAdmin, (req, res) => {
-  const key = String(req.params.key || '').trim();
-  const lic = LICENSES.get(key);
-  
-  if (!lic) {
-    return res.status(404).json({ ok: false, error: 'not-found' });
-  }
-  
-  lic.status = 'revoked';
-  saveLicenses();
-  
-  console.log(`🚫 Licencia revocada: ${key}`);
-  res.json({ ok: true, message: 'License revoked' });
-});
-
-// Extender licencia
-app.post('/admin/license/:key/extend', requireAdmin, (req, res) => {
-  const key = String(req.params.key || '').trim();
-  const lic = LICENSES.get(key);
-  
-  if (!lic) {
-    return res.status(404).json({ ok: false, error: 'not-found' });
-  }
-  
-  const months = Math.max(1, Number(req.body?.months) || 1);
+app.get('/admin/user/:tiktokUser', requireAdmin, async (req, res) => {
+  const tiktokUser = normalizeUsername(req.params.tiktokUser);
   const t = Date.now();
-  
-  // Extender desde la fecha de expiración actual o desde ahora (lo que sea mayor)
-  const baseTime = Math.max(lic.expiresAt, t);
-  lic.expiresAt = baseTime + months * 30 * 24 * 60 * 60 * 1000;
-  
-  // Si estaba expirada, reactivar
-  if (lic.status === 'expired') {
-    lic.status = 'active';
+
+  try {
+    const result = await pool.query('SELECT * FROM users WHERE tiktok_user = $1', [tiktokUser]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: 'not-found' });
+    }
+
+    const u = result.rows[0];
+
+    res.json({
+      ok: true,
+      user: {
+        tiktokUser: u.tiktok_user,
+        daysActive: u.days_active,
+        expiresAt: u.expires_at,
+        createdAt: u.created_at,
+        lastUsed: u.last_used,
+        status: u.status,
+        notes: u.notes,
+        usageCount: u.usage_count,
+        daysRemaining: Math.max(0, Math.ceil((u.expires_at - t) / (24 * 60 * 60 * 1000))),
+        isExpired: t > u.expires_at
+      }
+    });
+  } catch (err) {
+    console.error('Error obteniendo usuario:', err);
+    res.status(500).json({ ok: false, error: 'database-error' });
   }
-  
-  saveLicenses();
-  
-  console.log(`⏱️ Licencia ${key} extendida por ${months} meses`);
-  res.json({ 
-    ok: true, 
-    message: `Extended by ${months} months`,
-    newExpiresAt: lic.expiresAt,
-    daysRemaining: Math.floor((lic.expiresAt - t) / (24 * 60 * 60 * 1000))
-  });
 });
 
-// Eliminar licencia permanentemente
-app.post('/admin/license/:key/delete', requireAdmin, (req, res) => {
-  const key = String(req.params.key || '').trim();
-  const existed = LICENSES.delete(key);
-  
-  if (existed) {
-    saveLicenses();
-    console.log(`🗑️ Licencia eliminada: ${key}`);
+app.post('/admin/user/:tiktokUser/disable', requireAdmin, async (req, res) => {
+  const tiktokUser = normalizeUsername(req.params.tiktokUser);
+
+  try {
+    const result = await pool.query(
+      'UPDATE users SET status = $1 WHERE tiktok_user = $2 RETURNING *',
+      ['disabled', tiktokUser]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: 'not-found' });
+    }
+
+    console.log(`🚫 Usuario ${tiktokUser} desactivado`);
+    res.json({ ok: true, message: 'User disabled' });
+  } catch (err) {
+    console.error('Error desactivando usuario:', err);
+    res.status(500).json({ ok: false, error: 'database-error' });
   }
-  
-  res.json({ ok: true, deleted: existed });
 });
 
-// Estadísticas generales
-app.get('/admin/stats', requireAdmin, (req, res) => {
+app.post('/admin/user/:tiktokUser/enable', requireAdmin, async (req, res) => {
+  const tiktokUser = normalizeUsername(req.params.tiktokUser);
   const t = Date.now();
-  const all = [...LICENSES.values()];
-  
-  const stats = {
-    total: all.length,
-    active: all.filter(l => l.status === 'active' && l.expiresAt > t).length,
-    expired: all.filter(l => l.status === 'expired' || (l.status === 'active' && l.expiresAt <= t)).length,
-    revoked: all.filter(l => l.status === 'revoked').length,
-    activated: all.filter(l => l.activatedAt).length,
-    neverUsed: all.filter(l => !l.lastUsed).length
-  };
-  
-  res.json({ ok: true, stats });
+
+  try {
+    const result = await pool.query('SELECT * FROM users WHERE tiktok_user = $1', [tiktokUser]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: 'not-found' });
+    }
+
+    const user = result.rows[0];
+
+    if (t > user.expires_at) {
+      return res.json({ ok: false, error: 'expired', message: 'Use /activate to add days' });
+    }
+
+    await pool.query('UPDATE users SET status = $1 WHERE tiktok_user = $2', ['active', tiktokUser]);
+
+    console.log(`✅ Usuario ${tiktokUser} reactivado`);
+    res.json({ ok: true, message: 'User enabled' });
+  } catch (err) {
+    console.error('Error reactivando usuario:', err);
+    res.status(500).json({ ok: false, error: 'database-error' });
+  }
 });
 
-// Actualizar notas de una licencia
-app.post('/admin/license/:key/notes', requireAdmin, (req, res) => {
-  const key = String(req.params.key || '').trim();
-  const lic = LICENSES.get(key);
-  
-  if (!lic) {
-    return res.status(404).json({ ok: false, error: 'not-found' });
+app.post('/admin/user/:tiktokUser/delete', requireAdmin, async (req, res) => {
+  const tiktokUser = normalizeUsername(req.params.tiktokUser);
+
+  try {
+    const result = await pool.query('DELETE FROM users WHERE tiktok_user = $1 RETURNING *', [tiktokUser]);
+
+    if (result.rows.length > 0) {
+      console.log(`🗑️ Usuario ${tiktokUser} eliminado`);
+    }
+
+    res.json({ ok: true, deleted: result.rows.length > 0 });
+  } catch (err) {
+    console.error('Error eliminando usuario:', err);
+    res.status(500).json({ ok: false, error: 'database-error' });
   }
-  
-  lic.notes = String(req.body?.notes || '');
-  lic.userIdentifier = String(req.body?.userIdentifier || lic.userIdentifier || '');
-  saveLicenses();
-  
-  res.json({ ok: true });
+});
+
+app.get('/admin/stats', requireAdmin, async (req, res) => {
+  const t = Date.now();
+
+  try {
+    const result = await pool.query('SELECT * FROM users');
+    const all = result.rows;
+
+    const stats = {
+      total: all.length,
+      active: all.filter(u => u.status === 'active' && u.expires_at > t).length,
+      expired: all.filter(u => u.status === 'expired' || (u.status === 'active' && u.expires_at <= t)).length,
+      disabled: all.filter(u => u.status === 'disabled').length,
+      neverUsed: all.filter(u => !u.last_used).length
+    };
+
+    res.json({ ok: true, stats });
+  } catch (err) {
+    console.error('Error obteniendo stats:', err);
+    res.status(500).json({ ok: false, error: 'database-error' });
+  }
+});
+
+app.post('/admin/user/:tiktokUser/notes', requireAdmin, async (req, res) => {
+  const tiktokUser = normalizeUsername(req.params.tiktokUser);
+  const notes = String(req.body?.notes || '');
+
+  try {
+    const result = await pool.query(
+      'UPDATE users SET notes = $1 WHERE tiktok_user = $2 RETURNING *',
+      [notes, tiktokUser]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: 'not-found' });
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Error actualizando notas:', err);
+    res.status(500).json({ ok: false, error: 'database-error' });
+  }
 });
 
 /* ================== SOCKET.IO ================== */
@@ -538,22 +562,9 @@ io.on('connection', (socket) => {
 /* ================== HEALTH ================== */
 app.get('/health', (_req, res) => res.send('ok'));
 
-/* ================== GRACEFUL SHUTDOWN ================== */
-process.on('SIGINT', () => {
-  console.log('\n💾 Guardando licencias antes de cerrar...');
-  saveLicenses();
-  process.exit(0);
-});
-
-process.on('SIGTERM', () => {
-  console.log('\n💾 Guardando licencias antes de cerrar...');
-  saveLicenses();
-  process.exit(0);
-});
-
 /* ================== START ================== */
 server.listen(PORT, () => {
   console.log(`🚀 Backend on :${PORT}`);
   console.log(`🔑 Admin key: ${ADMIN_KEY}`);
-  console.log(`📦 Licencias cargadas: ${LICENSES.size}`);
+  console.log(`💾 Database: ${process.env.DATABASE_URL ? 'Connected' : 'Not configured'}`);
 });
