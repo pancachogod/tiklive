@@ -13,9 +13,9 @@ const { Pool } = pg;
 const PORT = process.env.PORT || 3000;
 
 const ORIGINS = [
-  'https://tiklive-6ywqave4w-pancachogods-projects.vercel.app',
+  'https://tiklive-git-main-pancachogods-projects.vercel.app/',
   /\.vercel\.app$/,
-  'http://localhost:5173',
+  'https://tiklive-63mk.onrender.com',
 ];
 
 /* ================== APP / IO ================== */
