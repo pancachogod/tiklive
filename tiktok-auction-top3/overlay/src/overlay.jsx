@@ -514,7 +514,7 @@ function RoomWizard() {
           }}>Copiar link</button>
         </div>
 
-        <div className="w-hint">Pega el link en <b>Browser Source</b> de TikTok LIVE Studio.</div>
+        <div className="w-hint"> agrega una  <b>captura de ventana</b> de TikTok LIVE Studio del overlay.</div>
         <div className="w-hint" style={{marginTop:8}}>
           Panel Admin: <a href={`/?view=admin&ws=${encodeURIComponent(sanitizeBaseUrl(ws))}`}>abrir aquí</a>
         </div>
