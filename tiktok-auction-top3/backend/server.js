@@ -36,28 +36,50 @@ const io = new Server(server, {
 /* ================== POSTGRESQL DATABASE ================== */
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL?.includes('supabase') ? { rejectUnauthorized: false } : undefined
+  ssl: process.env.DATABASE_URL 
+    ? { rejectUnauthorized: false } 
+    : false,
+  connectionTimeoutMillis: 10000, // 10 segundos
+  idleTimeoutMillis: 30000,
+  max: 20 // máximo de conexiones
+});
+
+// Test de conexión
+pool.on('error', (err) => {
+  console.error('❌ Error inesperado en el pool de PostgreSQL:', err);
 });
 
 // Inicializar tablas
 async function initDatabase() {
-  try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
-        tiktok_user VARCHAR(255) UNIQUE NOT NULL,
-        days_active INTEGER NOT NULL,
-        expires_at BIGINT NOT NULL,
-        created_at BIGINT NOT NULL,
-        last_used BIGINT,
-        status VARCHAR(50) DEFAULT 'active',
-        notes TEXT,
-        usage_count INTEGER DEFAULT 0
-      )
-    `);
-    console.log('✅ Base de datos inicializada');
-  } catch (err) {
-    console.error('❌ Error inicializando base de datos:', err.message);
+  let retries = 5;
+  while (retries > 0) {
+    try {
+      await pool.query('SELECT NOW()'); // Test de conexión
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS users (
+          id SERIAL PRIMARY KEY,
+          tiktok_user VARCHAR(255) UNIQUE NOT NULL,
+          days_active INTEGER NOT NULL,
+          expires_at BIGINT NOT NULL,
+          created_at BIGINT NOT NULL,
+          last_used BIGINT,
+          status VARCHAR(50) DEFAULT 'active',
+          notes TEXT,
+          usage_count INTEGER DEFAULT 0
+        )
+      `);
+      console.log('✅ Base de datos inicializada correctamente');
+      return;
+    } catch (err) {
+      retries--;
+      console.error(`❌ Error conectando a la base de datos (${retries} intentos restantes):`, err.message);
+      if (retries === 0) {
+        console.error('❌ No se pudo conectar a la base de datos después de varios intentos');
+        console.error('Verifica tu DATABASE_URL y que la base de datos esté accesible');
+      } else {
+        await new Promise(resolve => setTimeout(resolve, 3000)); // Esperar 3 segundos
+      }
+    }
   }
 }
 
