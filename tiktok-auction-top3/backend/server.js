@@ -1,18 +1,60 @@
 // backend/server.js
-// server.js (primeras líneas)
 import dns from 'dns'
 dns.setDefaultResultOrder('ipv4first')     // <- debe ir antes de crear/importar el pool
+// Conexión PostgreSQL (Supabase) robusta sin archivo extra
+import { Pool } from 'pg'
+import dnsPromises from 'dns/promises'
 
-import { pool, initDb } from './db.js'     // importa tu pool DESPUÉS de forzar IPv4
-import 'dotenv/config';
-import express from 'express';
-import http from 'http';
-import { Server } from 'socket.io';
-import cors from 'cors';
-import { WebcastPushConnection } from 'tiktok-live-connector';
-import pg from 'pg';
+const RAW_URL = process.env.DATABASE_URL
+if (!RAW_URL) {
+  throw new Error('DATABASE_URL no configurada')
+}
 
-const { Pool } = pg;
+const url = new URL(RAW_URL)
+
+// SSL para Supabase (si no está en la URL)
+const sslRequired = (url.searchParams.get('sslmode') || '').toLowerCase() === 'require'
+
+// Forzamos IPv4 resolviendo el hostname a su A record; si falla, usamos el hostname
+let host = url.hostname
+try {
+  const { address } = await dnsPromises.lookup(url.hostname, { family: 4 })
+  host = address
+} catch {
+  // Si no resolvió, NODE_OPTIONS=--dns-result-order=ipv4first ayudará
+}
+
+// 🚨 CREA SOLO UN POOL y reúsalo en todo el servidor
+export const pgPool = new Pool({
+  host,
+  port: Number(url.port || 5432),
+  database: url.pathname.replace(/^\//, '') || 'postgres',
+  user: decodeURIComponent(url.username),
+  password: decodeURIComponent(url.password),
+  ssl: sslRequired ? { rejectUnauthorized: false } : false,
+  max: 10,
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 8_000,
+})
+
+// Log útil para ver errores del pool en Render
+pgPool.on('error', (err) => console.error('PG Pool error:', err))
+
+// Test de conexión + (opcional) init/migración
+await pgPool.query('select 1')
+console.log('💾 Database: Connected')
+
+// (Opcional) crea tablas mínimas si las necesitas
+// await pgPool.query(`
+//   create table if not exists users (
+//     id serial primary key,
+//     tiktok_user text unique not null,
+//     status text not null default 'active',
+//     expires_at timestamptz
+//   );
+// `)
+// console.log('✅ Base de datos inicializada')
+
 
 /* ================== CONFIG BÁSICA ================== */
 const PORT = process.env.PORT || 3000;
@@ -566,6 +608,7 @@ io.on('connection', (socket) => {
 
 /* ================== HEALTH ================== */
 app.get('/health', (_req, res) => res.send('ok'));
+
 
 /* ================== START ================== */
 server.listen(PORT, () => {
