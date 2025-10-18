@@ -11,30 +11,32 @@ export default function App() {
   if (view === 'admin') return <AdminPanel />
   if (!room) return <RoomWizard />
   return (
-    <OverlayWithLicense>
+    <OverlayWithUser>
       <AuctionOverlay />
-    </OverlayWithLicense>
+    </OverlayWithUser>
   )
 }
 
-/* ============== Licencias (canje simple via backend) ============== */
-function OverlayWithLicense({ children }) {
+/* ============== Verificación por Usuario TikTok ============== */
+function OverlayWithUser({ children }) {
   const q = new URLSearchParams(location.search)
   const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || 'https://tiklive-63mk.onrender.com'
   const WS = sanitizeBaseUrl(RAW_WS)
   const [ok, setOk] = useState(false)
   const [busy, setBusy] = useState(true)
-  const [key, setKey] = useState(q.get('key') || localStorage.getItem('LIC_KEY') || '')
+  const [tiktokUser, setTiktokUser] = useState(q.get('user') || localStorage.getItem('TIKTOK_USER') || '')
   const [msg, setMsg] = useState('')
+  const [daysRemaining, setDaysRemaining] = useState(0)
 
   useEffect(() => {
     (async () => {
-      const k = (q.get('key') || localStorage.getItem('LIC_KEY') || '').trim()
-      if (!k) { setBusy(false); return }
+      const u = (q.get('user') || localStorage.getItem('TIKTOK_USER') || '').trim().replace(/^@+/, '')
+      if (!u) { setBusy(false); return }
       try {
-        const { ok: httpOK, data } = await postJSON(`${WS}/license/verify`, { key: k })
+        const { ok: httpOK, data } = await postJSON(`${WS}/user/verify`, { tiktokUser: u })
         if (httpOK && data?.ok) {
-          localStorage.setItem('LIC_KEY', k)
+          localStorage.setItem('TIKTOK_USER', u)
+          setDaysRemaining(data.daysRemaining || 0)
           setOk(true)
         }
       } catch {}
@@ -42,82 +44,235 @@ function OverlayWithLicense({ children }) {
     })()
   }, [WS])
 
-  if (busy) return <div className="gate"><div className="g-card"><div className="g-title">Verificando licencia…</div></div></div>
+  if (busy) return <div className="gate"><div className="g-card"><div className="g-title">Verificando acceso…</div></div></div>
 
   if (!ok) {
-    const redeem = async (e) => {
+    const verify = async (e) => {
       e?.preventDefault?.()
       setMsg('')
-      const k = key.trim()
-      if (!k) { setMsg('Ingresa tu código.'); return }
+      const u = (tiktokUser || '').trim().replace(/^@+/, '')
+      if (!u) { setMsg('Ingresa tu usuario de TikTok.'); return }
       try {
-        const { ok: httpOK, data } = await postJSON(`${WS}/license/verify`, { key: k })
+        const { ok: httpOK, data } = await postJSON(`${WS}/user/verify`, { tiktokUser: u })
         if (httpOK && data?.ok) {
-          localStorage.setItem('LIC_KEY', k)
+          localStorage.setItem('TIKTOK_USER', u)
+          setDaysRemaining(data.daysRemaining || 0)
           setOk(true)
         } else {
           const error = data?.error || 'invalid'
-          if (error === 'license-expired') setMsg('Licencia expirada.')
-          else if (error === 'license-revoked') setMsg('Licencia revocada.')
-          else setMsg('Código inválido.')
+          if (error === 'subscription-expired') setMsg('Tu suscripción ha expirado.')
+          else if (error === 'user-disabled') setMsg('Usuario desactivado.')
+          else if (error === 'user-not-found') setMsg('Usuario no encontrado. Contacta al administrador.')
+          else setMsg('No tienes acceso.')
         }
       } catch { setMsg('No se pudo contactar con el servidor.') }
     }
     return (
       <div className="gate">
-        <form className="g-card" onSubmit={redeem}>
-          <div className="g-title">Canjear código</div>
-          <div className="g-field"><input value={key} onChange={e=>setKey(e.target.value)} placeholder="Pega tu código" /></div>
+        <form className="g-card" onSubmit={verify}>
+          <div className="g-title">Verificar Acceso</div>
+          <div className="g-subtitle">Ingresa tu usuario de TikTok (sin @)</div>
+          <div className="g-field">
+            <input value={tiktokUser} onChange={e=>setTiktokUser(e.target.value)} placeholder="usuario123" />
+          </div>
           {msg && <div className="g-msg">{msg}</div>}
           <div className="g-actions">
-            <button className="g-primary" type="submit">Canjear</button>
-            <a className="g-ghost" href="https://t.me/+ae-ctGPi8sM1MTYx" target="_blank" rel="noreferrer">Obtener membresía</a>
+            <button className="g-primary" type="submit">Verificar</button>
+            <a className="g-ghost" href="https://t.me/+ae-ctGPi8sM1MTYx" target="_blank" rel="noreferrer">Obtener acceso</a>
           </div>
         </form>
       </div>
     )
   }
 
-  return children
+  return (
+    <div>
+      <div className="days-remaining">
+        <span>👤 {localStorage.getItem('TIKTOK_USER') || tiktokUser}</span>
+        <span>⏱️ {daysRemaining} días restantes</span>
+      </div>
+      {children}
+    </div>
+  )
 }
 
-/* ======================= ADMIN PANEL ======================= */
+/* ======================= ADMIN PANEL (gestión de usuarios) ======================= */
 function AdminPanel() {
   const q = new URLSearchParams(location.search)
   const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || 'https://tiklive-63mk.onrender.com'
   const WS = sanitizeBaseUrl(RAW_WS)
 
-  const [pin, setPin] = useState('')
-  const [authenticated, setAuthenticated] = useState(false)
   const [adminKey, setAdminKey] = useState('')
-  const [months, setMonths] = useState(1)
-  const [count, setCount] = useState(5)
-  const [result, setResult] = useState(null)
+  const [authenticated, setAuthenticated] = useState(false)
   const [msg, setMsg] = useState('')
 
-  const ADMIN_PIN = '0422' // Cambia este PIN
+  const [view, setView] = useState('dashboard') // 'dashboard' | 'list' | 'activate' | 'details'
+  const [stats, setStats] = useState(null)
 
-  const checkPin = (e) => {
+  // Listado
+  const [users, setUsers] = useState([])
+  const [search, setSearch] = useState('')
+  const [filter, setFilter] = useState('all') // all|active|expired|disabled
+
+  // Detalle
+  const [selectedUser, setSelectedUser] = useState(null)
+
+  // Activación
+  const [newUser, setNewUser] = useState('')
+  const [days, setDays] = useState(30)
+
+  const checkAuth = async (e) => {
     e?.preventDefault?.()
-    if (pin === ADMIN_PIN) {
-      setAuthenticated(true)
-      setMsg('')
-    } else {
-      setMsg('PIN incorrecto')
+    setMsg('')
+    try {
+      const res = await fetch(`${WS}/admin/stats`, {
+        headers: { 'x-admin-key': adminKey }
+      })
+      if (res.ok) {
+        setAuthenticated(true)
+        await loadStats()
+      } else {
+        setMsg('Admin Key incorrecta')
+      }
+    } catch {
+      setMsg('Error de conexión')
     }
+  }
+
+  const loadStats = async () => {
+    try {
+      const res = await fetch(`${WS}/admin/stats`, {
+        headers: { 'x-admin-key': adminKey }
+      })
+      const data = await res.json().catch(()=>({}))
+      if (data?.ok) setStats(data.stats)
+    } catch {}
+  }
+
+  const loadUsers = async () => {
+    try {
+      const params = new URLSearchParams()
+      if (filter !== 'all') params.set('status', filter)
+      if (search) params.set('search', search)
+      const res = await fetch(`${WS}/admin/user/list?${params.toString()}`, {
+        headers: { 'x-admin-key': adminKey }
+      })
+      const data = await res.json().catch(()=>({}))
+      if (data?.ok) setUsers(data.users || [])
+    } catch {}
+  }
+
+  const activateUser = async () => {
+    setMsg('')
+    const u = (newUser || '').trim().replace(/^@+/, '')
+    if (!u) { setMsg('Ingresa un usuario'); return }
+    if (days < 1) { setMsg('Los días deben ser mayor a 0'); return }
+    try {
+      const res = await fetch(`${WS}/admin/user/activate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-key': adminKey },
+        body: JSON.stringify({ tiktokUser: u, days })
+      })
+      const data = await res.json().catch(()=>({}))
+      if (data?.ok) {
+        alert(`✅ Usuario @${u} activado por ${days} días`)
+        setNewUser('')
+        setDays(30)
+        loadStats()
+        if (view === 'list') loadUsers()
+      } else {
+        setMsg(data?.error || 'Error')
+      }
+    } catch {
+      setMsg('Error de red')
+    }
+  }
+
+  const viewDetails = async (tiktokUser) => {
+    try {
+      const res = await fetch(`${WS}/admin/user/${tiktokUser}`, {
+        headers: { 'x-admin-key': adminKey }
+      })
+      const data = await res.json().catch(()=>({}))
+      if (data?.ok) {
+        setSelectedUser(data.user)
+        setView('details')
+      }
+    } catch {}
+  }
+
+  const disableUser = async (tiktokUser) => {
+    if (!confirm(`¿Desactivar a @${tiktokUser}?`)) return
+    try {
+      const res = await fetch(`${WS}/admin/user/${tiktokUser}/disable`, {
+        method: 'POST',
+        headers: { 'x-admin-key': adminKey }
+      })
+      if (res.ok) {
+        alert('Usuario desactivado')
+        if (view === 'details') viewDetails(tiktokUser)
+        if (view === 'list') loadUsers()
+      }
+    } catch {}
+  }
+
+  const enableUser = async (tiktokUser) => {
+    try {
+      const res = await fetch(`${WS}/admin/user/${tiktokUser}/enable`, {
+        method: 'POST',
+        headers: { 'x-admin-key': adminKey }
+      })
+      if (res.ok) {
+        alert('Usuario reactivado')
+        if (view === 'details') viewDetails(tiktokUser)
+        if (view === 'list') loadUsers()
+      }
+    } catch {}
+  }
+
+  const extendUser = async (tiktokUser, extraDays) => {
+    if (extraDays < 1) { alert('Días inválidos'); return }
+    try {
+      const res = await fetch(`${WS}/admin/user/${tiktokUser}/extend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-key': adminKey },
+        body: JSON.stringify({ days: extraDays })
+      })
+      if (res.ok) {
+        alert(`Extensión aplicada (+${extraDays} días)`)
+        if (view === 'details') viewDetails(tiktokUser)
+        if (view === 'list') loadUsers()
+        loadStats()
+      }
+    } catch {}
+  }
+
+  const deleteUser = async (tiktokUser) => {
+    if (!confirm(`¿Eliminar a @${tiktokUser}? Esta acción no se puede deshacer.`)) return
+    try {
+      const res = await fetch(`${WS}/admin/user/${tiktokUser}`, {
+        method: 'DELETE',
+        headers: { 'x-admin-key': adminKey }
+      })
+      if (res.ok) {
+        alert('Usuario eliminado')
+        if (view === 'details') { setView('list'); setSelectedUser(null) }
+        loadUsers()
+        loadStats()
+      }
+    } catch {}
   }
 
   if (!authenticated) {
     return (
       <div className="gate">
-        <form className="g-card" onSubmit={checkPin}>
+        <form className="g-card" onSubmit={checkAuth}>
           <div className="g-title">🔒 Panel Admin</div>
           <div className="g-field">
             <input 
-              type="password" 
-              value={pin} 
-              onChange={e=>setPin(e.target.value)} 
-              placeholder="Ingresa el PIN" 
+              value={adminKey} 
+              onChange={e=>setAdminKey(e.target.value)} 
+              placeholder="ADMIN_KEY" 
             />
           </div>
           {msg && <div className="g-msg">{msg}</div>}
@@ -130,62 +285,121 @@ function AdminPanel() {
     )
   }
 
-  const issue = async () => {
-    setMsg('')
-    try {
-      const res = await fetch(`${WS}/admin/license/create`, {
-        method:'POST',
-        headers:{'Content-Type':'application/json', 'x-admin-key': adminKey},
-        body: JSON.stringify({ months, count })
-      })
-      const j = await res.json().catch(()=>({}))
-      if (!j?.ok) { setMsg(j?.error || 'Unauthorized'); setResult(null); return }
-      setResult(j)
-    } catch { setMsg('Error de red') }
-  }
-
   return (
     <div className="wizard">
-      <div className="w-card" style={{maxWidth: 560}}>
-        <h2>Admin: Generar llaves</h2>
+      <div className="w-card" style={{maxWidth: 940}}>
+        <h2>Admin</h2>
 
-        <div className="w-field">
-          <label>ADMIN_KEY</label>
-          <input value={adminKey} onChange={e=>setAdminKey(e.target.value)} placeholder="pancacho123" />
+        <div className="tabs">
+          <button className={`tab-btn ${view==='dashboard'?'active':''}`} onClick={()=>{setView('dashboard'); loadStats()}}>Dashboard</button>
+          <button className={`tab-btn ${view==='list'?'active':''}`} onClick={()=>{setView('list'); loadUsers()}}>Usuarios</button>
+          <button className={`tab-btn ${view==='activate'?'active':''}`} onClick={()=>setView('activate')}>Activar</button>
         </div>
 
-        <div className="w-field">
-          <label>Meses de validez</label>
-          <input type="number" min="1" max="12" value={months} onChange={e=>setMonths(Number(e.target.value)||1)} />
-        </div>
+        {view==='dashboard' && (
+          <div className="grid-3">
+            <div className="stat">
+              <div className="stat-title">Activos</div>
+              <div className="stat-value">{stats?.active ?? '-'}</div>
+            </div>
+            <div className="stat">
+              <div className="stat-title">Expirados</div>
+              <div className="stat-value">{stats?.expired ?? '-'}</div>
+            </div>
+            <div className="stat">
+              <div className="stat-title">Deshabilitados</div>
+              <div className="stat-value">{stats?.disabled ?? '-'}</div>
+            </div>
+            <div className="w-actions" style={{gridColumn:'1 / -1'}}>
+              <button className="w-primary" onClick={loadStats}>Refrescar</button>
+              <a className="w-success" href={`/?ws=${encodeURIComponent(WS)}`}>Ir al Wizard</a>
+            </div>
+          </div>
+        )}
 
-        <div className="w-field">
-          <label>Cantidad de llaves</label>
-          <input type="number" min="1" max="100" value={count} onChange={e=>setCount(Number(e.target.value)||1)} />
-        </div>
+        {view==='list' && (
+          <>
+            <div className="w-row" style={{gap:8}}>
+              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar usuario…" />
+              <select value={filter} onChange={e=>setFilter(e.target.value)}>
+                <option value="all">Todos</option>
+                <option value="active">Activos</option>
+                <option value="expired">Expirados</option>
+                <option value="disabled">Deshabilitados</option>
+              </select>
+              <button className="w-btn" onClick={loadUsers}>Buscar</button>
+            </div>
 
-        <div className="w-actions">
-          <button className="w-primary" onClick={issue}>Generar</button>
-          <a className="w-success" style={{textAlign:'center'}} href={`/?ws=${encodeURIComponent(WS)}`} >Ir al Wizard</a>
-        </div>
-
-        {msg && <div className="w-hint" style={{color:'#ff6', marginTop:8}}>{msg}</div>}
-
-        {result?.ok && (
-          <div className="w-field">
-            <label>Keys generadas</label>
-            <div className="keys">
-              {result.keys.map((k, idx)=>(
-                <div key={idx} className="keyrow">
-                  <code className="keytxt">{k.key}</code>
-                  <button className="w-btn" onClick={()=>navigator.clipboard.writeText(k.key)}>Copiar</button>
+            <div className="list-table" style={{marginTop:12}}>
+              {users.length===0 && <div className="w-hint">Sin resultados</div>}
+              {users.map(u=>(
+                <div key={u.tiktokUser} className="row-lite">
+                  <div className="cell">@{u.tiktokUser}</div>
+                  <div className="cell">Estado: {u.status}</div>
+                  <div className="cell">Días restantes: {u.daysRemaining ?? '-'}</div>
+                  <div className="cell actions">
+                    <button className="w-btn" onClick={()=>viewDetails(u.tiktokUser)}>Detalles</button>
+                    {u.status==='disabled'
+                      ? <button className="w-success" onClick={()=>enableUser(u.tiktokUser)}>Habilitar</button>
+                      : <button className="w-btn" onClick={()=>disableUser(u.tiktokUser)}>Deshabilitar</button>}
+                    <button className="w-danger" onClick={()=>deleteUser(u.tiktokUser)}>Eliminar</button>
+                  </div>
                 </div>
               ))}
             </div>
-            <div className="w-hint">Expiran en {months} mes(es) desde hoy.</div>
+          </>
+        )}
+
+        {view==='activate' && (
+          <>
+            <div className="w-field">
+              <label>Usuario TikTok (sin @)</label>
+              <input value={newUser} onChange={e=>setNewUser(e.target.value)} placeholder="usuario123" />
+            </div>
+            <div className="w-field">
+              <label>Días de acceso</label>
+              <input type="number" min="1" value={days} onChange={e=>setDays(Number(e.target.value)||1)} />
+            </div>
+            {msg && <div className="w-hint" style={{color:'#ff6'}}>{msg}</div>}
+            <div className="w-actions">
+              <button className="w-primary" onClick={activateUser}>Activar</button>
+              <button className="w-btn" onClick={()=>{setNewUser(''); setDays(30)}}>Limpiar</button>
+            </div>
+          </>
+        )}
+
+        {view==='details' && selectedUser && (
+          <div className="detail-card">
+            <h3>@{selectedUser.tiktokUser}</h3>
+            <div className="w-hint">Estado: {selectedUser.status}</div>
+            <div className="w-hint">Días restantes: {selectedUser.daysRemaining ?? '-'}</div>
+            <div className="w-hint">Expira el: {selectedUser.expiresAt ? new Date(selectedUser.expiresAt).toLocaleString() : '-'}</div>
+
+            <div className="w-row" style={{gap:8, marginTop:12}}>
+              {selectedUser.status==='disabled'
+                ? <button className="w-success" onClick={()=>enableUser(selectedUser.tiktokUser)}>Habilitar</button>
+                : <button className="w-btn" onClick={()=>disableUser(selectedUser.tiktokUser)}>Deshabilitar</button>}
+              <button className="w-danger" onClick={()=>deleteUser(selectedUser.tiktokUser)}>Eliminar</button>
+              <button className="w-btn" onClick={()=>setView('list')}>Volver</button>
+            </div>
+
+            <div className="w-field" style={{marginTop:16}}>
+              <label>Extender días</label>
+              <ExtendForm onExtend={(n)=>extendUser(selectedUser.tiktokUser, n)} />
+            </div>
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function ExtendForm({ onExtend }) {
+  const [n, setN] = useState(7)
+  return (
+    <div className="w-row" style={{gap:8}}>
+      <input type="number" min="1" value={n} onChange={e=>setN(Number(e.target.value)||1)} />
+      <button className="w-primary" onClick={()=>onExtend(Math.max(1, Number(n)||1))}>Aplicar</button>
     </div>
   )
 }
@@ -464,7 +678,7 @@ function RoomWizard() {
   const q = new URLSearchParams(location.search)
   const [room, setRoom] = useState(randomRoom())
   const [top, setTop] = useState(3)
-  const [user, setUser] = useState('')
+  const [user, setUser] = useState('') // se usa tanto para autouser (overlay) como para verificación (?user)
   const [ws] = useState(q.get('ws') || import.meta.env.VITE_WS_URL || 'https://tiklive-63mk.onrender.com')
 
   const makeUrl = () => {
@@ -472,9 +686,12 @@ function RoomWizard() {
     p.set('ws', sanitizeBaseUrl(ws))
     p.set('room', room.trim())
     p.set('top', String(top))
-    const key = localStorage.getItem('LIC_KEY')
+    const key = localStorage.getItem('LIC_KEY') // por compatibilidad, si existiera, no afecta overlay
     if (key) p.set('key', key)
-    if (user.trim()) p.set('autouser', user.replace(/^@+/, '').trim())
+    if (user.trim()) {
+      p.set('autouser', user.replace(/^@+/, '').trim()) // para overlay (opcional)
+      p.set('user', user.replace(/^@+/, '').trim())     // para verificación por usuario
+    }
     return `${location.origin}/?${p.toString()}`
   }
 
