@@ -6,6 +6,8 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import { WebcastPushConnection } from 'tiktok-live-connector';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 
 /* ================== CONFIG BÁSICA ================== */
 const PORT = process.env.PORT || 3000;
@@ -35,16 +37,6 @@ const io = new Server(server, {
 /* =====================================================
    MODELO MULTI-ROOM (subasta por sala)
 ===================================================== */
-/**
- * rooms: Map<roomId, Room>
- * Room = {
- *   id, user, auction:{title,endsAt,donationsTotal,top},
- *   donors: Map,
- *   tiktok: WebcastPushConnection|null,
- *   reconnectTimer: NodeJS.Timer|null,
- *   lastActivity: number
- * }
- */
 const rooms = new Map();
 const ROOM_IDLE_MS = 60 * 60 * 1000; // 1h sin actividad => limpiar
 const now = () => Date.now();
@@ -111,7 +103,6 @@ async function connectLoop(r) {
 
     r.tiktok.on('gift', data => {
       if (!isRunning(r)) return;
-      // regalos en racha: solo sumar cuando termina
       if (data?.giftType === 1 && !data?.repeatEnd) return;
 
       const user   = data?.nickname || data?.uniqueId || 'Anónimo';
@@ -140,7 +131,7 @@ async function connectLoop(r) {
   }
 }
 
-/* Limpieza de rooms inactivos (opcional) */
+/* Limpieza de rooms inactivos */
 setInterval(() => {
   const cutoff = now() - ROOM_IDLE_MS;
   for (const [id, r] of rooms) {
@@ -153,7 +144,7 @@ setInterval(() => {
   }
 }, 10 * 60 * 1000);
 
-/* Watchdog: al terminar el tiempo, reemitir estado (no sumar más) */
+/* Watchdog */
 setInterval(() => {
   for (const r of rooms.values()) {
     if (!isRunning(r) && r.auction.endsAt !== 0) {
@@ -164,7 +155,6 @@ setInterval(() => {
 
 /* ================== ENDPOINTS DE SALA ================== */
 
-// Cambiar usuario de TikTok para un room
 app.post('/:room/user', (req, res) => {
   const roomId = String(req.params.room || '').trim();
   const r = getRoom(roomId);
@@ -182,7 +172,6 @@ app.post('/:room/user', (req, res) => {
   res.json({ ok: true, user: r.user });
 });
 
-// Iniciar/reiniciar subasta
 app.post('/:room/auction/start', (req, res) => {
   const roomId = String(req.params.room || '').trim();
   const r = getRoom(roomId);
@@ -197,7 +186,6 @@ app.post('/:room/auction/start', (req, res) => {
   res.json({ ok: true, auction: r.auction });
 });
 
-// Estado
 app.get('/:room/auction', (req, res) => {
   const r = getRoom(String(req.params.room || '').trim());
   res.json(r.auction);
@@ -215,7 +203,6 @@ app.get('/:room/status', (req, res) => {
   });
 });
 
-// Simular donación (solo si la subasta está activa)
 app.post('/:room/debug/gift', (req, res) => {
   const r = getRoom(String(req.params.room || '').trim());
   const { user='Tester', avatar='', diamonds=50 } = req.body || {};
@@ -230,87 +217,313 @@ app.post('/:room/debug/gift', (req, res) => {
 });
 
 /* =====================================================
-   SISTEMA DE LLAVES (admin + verificación)
-   - ADMIN_KEY fija a 'pancacho123'
-   - Almacenamiento en memoria (se pierde al reiniciar)
+   SISTEMA DE LICENCIAS MEJORADO
+   - Sin base de datos, usa archivo JSON
+   - Persistencia en disco
+   - Sistema completo de gestión
 ===================================================== */
-const ADMIN_KEY = 'pancacho123';      // ← tu clave admin solicitada
-const LICENSES = new Map();            // key -> { expiresAt }
 
-/* limpieza de llaves vencidas */
+const ADMIN_KEY = 'pancacho123';
+const LICENSE_FILE = path.join(process.cwd(), 'licenses.json');
+
+// Estructura de licencia:
+// {
+//   key: string,
+//   months: number,
+//   createdAt: number,
+//   expiresAt: number,
+//   activatedAt: number | null,
+//   lastUsed: number | null,
+//   userIdentifier: string | null,
+//   status: 'active' | 'expired' | 'revoked',
+//   notes: string,
+//   usageCount: number
+// }
+
+let LICENSES = new Map();
+
+// Cargar licencias desde archivo
+function loadLicenses() {
+  try {
+    if (fs.existsSync(LICENSE_FILE)) {
+      const data = fs.readFileSync(LICENSE_FILE, 'utf8');
+      const parsed = JSON.parse(data);
+      LICENSES = new Map(Object.entries(parsed));
+      console.log(`📦 Cargadas ${LICENSES.size} licencias desde archivo`);
+    }
+  } catch (err) {
+    console.error('❌ Error cargando licencias:', err.message);
+  }
+}
+
+// Guardar licencias a archivo
+function saveLicenses() {
+  try {
+    const obj = Object.fromEntries(LICENSES);
+    fs.writeFileSync(LICENSE_FILE, JSON.stringify(obj, null, 2));
+  } catch (err) {
+    console.error('❌ Error guardando licencias:', err.message);
+  }
+}
+
+// Cargar al inicio
+loadLicenses();
+
+// Auto-guardar cada 30 segundos
+setInterval(saveLicenses, 30_000);
+
+// Limpieza de llaves expiradas (marcar como expiradas)
 setInterval(() => {
   const t = Date.now();
+  let changed = false;
   for (const [k, v] of LICENSES) {
-    if (v.expiresAt <= t) LICENSES.delete(k);
+    if (v.status === 'active' && v.expiresAt <= t) {
+      v.status = 'expired';
+      changed = true;
+    }
   }
+  if (changed) saveLicenses();
 }, 10 * 60 * 1000);
 
-/* generador legible: ABCD-1234-EFGH */
+// Generar key legible
 function genKeyReadable() {
   const raw = crypto.randomBytes(8).toString('hex').toUpperCase();
   return raw.slice(0,4) + '-' + raw.slice(4,8) + '-' + raw.slice(8,12);
 }
 
-/* Verificar/canjear: público
-   body: { key }
-   resp: { ok, expiresAt? } */
+/* ============ USER ENDPOINTS ============ */
+
+// Verificar/activar licencia
 app.post('/license/verify', (req, res) => {
   const key = String(req.body?.key || '').trim();
   if (!key) return res.status(400).json({ ok: false, error: 'key-required' });
 
-  const info = LICENSES.get(key);
-  if (!info) return res.json({ ok: false });
+  const lic = LICENSES.get(key);
+  if (!lic) return res.json({ ok: false, error: 'invalid-key' });
 
-  if (Date.now() > info.expiresAt) {
-    LICENSES.delete(key);
-    return res.json({ ok: false });
+  const t = Date.now();
+
+  // Verificar si está revocada
+  if (lic.status === 'revoked') {
+    return res.json({ ok: false, error: 'license-revoked' });
   }
-  res.json({ ok: true, expiresAt: info.expiresAt });
+
+  // Verificar si expiró
+  if (t > lic.expiresAt) {
+    lic.status = 'expired';
+    saveLicenses();
+    return res.json({ ok: false, error: 'license-expired' });
+  }
+
+  // Activar si es primera vez
+  if (!lic.activatedAt) {
+    lic.activatedAt = t;
+  }
+
+  // Actualizar uso
+  lic.lastUsed = t;
+  lic.usageCount = (lic.usageCount || 0) + 1;
+  saveLicenses();
+
+  res.json({
+    ok: true,
+    expiresAt: lic.expiresAt,
+    daysRemaining: Math.floor((lic.expiresAt - t) / (24 * 60 * 60 * 1000))
+  });
 });
 
-/* Crear llaves: solo admin
-   headers: x-admin-key: pancacho123
-   body: { months=1, count=5 } */
-app.post('/admin/license/create', (req, res) => {
+/* ============ ADMIN ENDPOINTS ============ */
+
+// Middleware para verificar admin
+function requireAdmin(req, res, next) {
   const headerKey = String(req.headers['x-admin-key'] || '').trim();
   if (headerKey !== ADMIN_KEY) {
     return res.status(401).json({ ok: false, error: 'unauthorized' });
   }
+  next();
+}
+
+// Crear licencias
+app.post('/admin/license/create', requireAdmin, (req, res) => {
   const months = Math.max(1, Math.min(12, Number(req.body?.months) || 1));
   const count  = Math.max(1, Math.min(100, Number(req.body?.count) || 1));
-  const expiresAt = Date.now() + months * 30 * 24 * 60 * 60 * 1000;
+  const t = Date.now();
+  const expiresAt = t + months * 30 * 24 * 60 * 60 * 1000;
 
   const keys = [];
   for (let i = 0; i < count; i++) {
     let key;
     do { key = genKeyReadable(); } while (LICENSES.has(key));
-    LICENSES.set(key, { expiresAt });
-    keys.push({ key, expiresAt: new Date(expiresAt).toISOString() });
+    
+    const lic = {
+      key,
+      months,
+      createdAt: t,
+      expiresAt,
+      activatedAt: null,
+      lastUsed: null,
+      userIdentifier: null,
+      status: 'active',
+      notes: '',
+      usageCount: 0
+    };
+    
+    LICENSES.set(key, lic);
+    keys.push({ key, expiresAt });
   }
-  res.json({ ok: true, keys });
+  
+  saveLicenses();
+  console.log(`✅ Creadas ${count} licencias (${months} meses)`);
+  res.json({ ok: true, keys, count: keys.length });
 });
 
-/* Opcional: listar/borrar (solo admin) */
-app.get('/admin/license/list', (req, res) => {
-  const headerKey = String(req.headers['x-admin-key'] || '').trim();
-  if (headerKey !== ADMIN_KEY) {
-    return res.status(401).json({ ok: false, error: 'unauthorized' });
+// Listar licencias con filtros
+app.get('/admin/license/list', requireAdmin, (req, res) => {
+  const { status, search } = req.query;
+  const t = Date.now();
+  
+  let licenses = [...LICENSES.values()];
+  
+  // Filtrar por estado
+  if (status && status !== 'all') {
+    licenses = licenses.filter(l => l.status === status);
   }
-  const out = [...LICENSES.entries()].map(([k, v]) => ({
-    key: k, expiresAt: new Date(v.expiresAt).toISOString()
+  
+  // Buscar por key o usuario
+  if (search) {
+    const s = search.toLowerCase();
+    licenses = licenses.filter(l => 
+      l.key.toLowerCase().includes(s) || 
+      (l.userIdentifier && l.userIdentifier.toLowerCase().includes(s))
+    );
+  }
+  
+  // Agregar info calculada
+  licenses = licenses.map(l => ({
+    ...l,
+    daysRemaining: Math.max(0, Math.floor((l.expiresAt - t) / (24 * 60 * 60 * 1000))),
+    isExpired: t > l.expiresAt,
+    isActivated: !!l.activatedAt
   }));
-  res.json({ ok: true, licenses: out });
+  
+  // Ordenar por fecha de creación (más reciente primero)
+  licenses.sort((a, b) => b.createdAt - a.createdAt);
+  
+  res.json({ ok: true, licenses, total: licenses.length });
 });
 
-app.post('/admin/license/delete', (req, res) => {
-  const headerKey = String(req.headers['x-admin-key'] || '').trim();
-  if (headerKey !== ADMIN_KEY) {
-    return res.status(401).json({ ok: false, error: 'unauthorized' });
+// Obtener detalles de una licencia
+app.get('/admin/license/:key', requireAdmin, (req, res) => {
+  const key = String(req.params.key || '').trim();
+  const lic = LICENSES.get(key);
+  
+  if (!lic) {
+    return res.status(404).json({ ok: false, error: 'not-found' });
   }
-  const key = String(req.body?.key || '').trim();
-  if (!key) return res.json({ ok:false, error:'key-required' });
+  
+  const t = Date.now();
+  res.json({
+    ok: true,
+    license: {
+      ...lic,
+      daysRemaining: Math.max(0, Math.floor((lic.expiresAt - t) / (24 * 60 * 60 * 1000))),
+      isExpired: t > lic.expiresAt
+    }
+  });
+});
+
+// Revocar licencia
+app.post('/admin/license/:key/revoke', requireAdmin, (req, res) => {
+  const key = String(req.params.key || '').trim();
+  const lic = LICENSES.get(key);
+  
+  if (!lic) {
+    return res.status(404).json({ ok: false, error: 'not-found' });
+  }
+  
+  lic.status = 'revoked';
+  saveLicenses();
+  
+  console.log(`🚫 Licencia revocada: ${key}`);
+  res.json({ ok: true, message: 'License revoked' });
+});
+
+// Extender licencia
+app.post('/admin/license/:key/extend', requireAdmin, (req, res) => {
+  const key = String(req.params.key || '').trim();
+  const lic = LICENSES.get(key);
+  
+  if (!lic) {
+    return res.status(404).json({ ok: false, error: 'not-found' });
+  }
+  
+  const months = Math.max(1, Number(req.body?.months) || 1);
+  const t = Date.now();
+  
+  // Extender desde la fecha de expiración actual o desde ahora (lo que sea mayor)
+  const baseTime = Math.max(lic.expiresAt, t);
+  lic.expiresAt = baseTime + months * 30 * 24 * 60 * 60 * 1000;
+  
+  // Si estaba expirada, reactivar
+  if (lic.status === 'expired') {
+    lic.status = 'active';
+  }
+  
+  saveLicenses();
+  
+  console.log(`⏱️ Licencia ${key} extendida por ${months} meses`);
+  res.json({ 
+    ok: true, 
+    message: `Extended by ${months} months`,
+    newExpiresAt: lic.expiresAt,
+    daysRemaining: Math.floor((lic.expiresAt - t) / (24 * 60 * 60 * 1000))
+  });
+});
+
+// Eliminar licencia permanentemente
+app.post('/admin/license/:key/delete', requireAdmin, (req, res) => {
+  const key = String(req.params.key || '').trim();
   const existed = LICENSES.delete(key);
-  res.json({ ok:true, deleted: existed });
+  
+  if (existed) {
+    saveLicenses();
+    console.log(`🗑️ Licencia eliminada: ${key}`);
+  }
+  
+  res.json({ ok: true, deleted: existed });
+});
+
+// Estadísticas generales
+app.get('/admin/stats', requireAdmin, (req, res) => {
+  const t = Date.now();
+  const all = [...LICENSES.values()];
+  
+  const stats = {
+    total: all.length,
+    active: all.filter(l => l.status === 'active' && l.expiresAt > t).length,
+    expired: all.filter(l => l.status === 'expired' || (l.status === 'active' && l.expiresAt <= t)).length,
+    revoked: all.filter(l => l.status === 'revoked').length,
+    activated: all.filter(l => l.activatedAt).length,
+    neverUsed: all.filter(l => !l.lastUsed).length
+  };
+  
+  res.json({ ok: true, stats });
+});
+
+// Actualizar notas de una licencia
+app.post('/admin/license/:key/notes', requireAdmin, (req, res) => {
+  const key = String(req.params.key || '').trim();
+  const lic = LICENSES.get(key);
+  
+  if (!lic) {
+    return res.status(404).json({ ok: false, error: 'not-found' });
+  }
+  
+  lic.notes = String(req.body?.notes || '');
+  lic.userIdentifier = String(req.body?.userIdentifier || lic.userIdentifier || '');
+  saveLicenses();
+  
+  res.json({ ok: true });
 });
 
 /* ================== SOCKET.IO ================== */
@@ -325,5 +538,22 @@ io.on('connection', (socket) => {
 /* ================== HEALTH ================== */
 app.get('/health', (_req, res) => res.send('ok'));
 
+/* ================== GRACEFUL SHUTDOWN ================== */
+process.on('SIGINT', () => {
+  console.log('\n💾 Guardando licencias antes de cerrar...');
+  saveLicenses();
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log('\n💾 Guardando licencias antes de cerrar...');
+  saveLicenses();
+  process.exit(0);
+});
+
 /* ================== START ================== */
-server.listen(PORT, () => console.log('Backend on :' + PORT));
+server.listen(PORT, () => {
+  console.log(`🚀 Backend on :${PORT}`);
+  console.log(`🔑 Admin key: ${ADMIN_KEY}`);
+  console.log(`📦 Licencias cargadas: ${LICENSES.size}`);
+});
