@@ -9,7 +9,6 @@ export default function App() {
   const room = (q.get('room') || '').trim()
 
   if (view === 'admin') return <AdminPanel />
-  if (view === 'manage') return <ManageLicenses />
   if (!room) return <RoomWizard />
   return (
     <OverlayWithLicense>
@@ -82,7 +81,7 @@ function OverlayWithLicense({ children }) {
   return children
 }
 
-/* ======================= ADMIN PANEL (Crear Keys) ======================= */
+/* ======================= ADMIN PANEL ======================= */
 function AdminPanel() {
   const q = new URLSearchParams(location.search)
   const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || 'http://localhost:3000'
@@ -96,7 +95,7 @@ function AdminPanel() {
   const [result, setResult] = useState(null)
   const [msg, setMsg] = useState('')
 
-  const ADMIN_PIN = '1234'
+  const ADMIN_PIN = '1234' // Cambia este PIN
 
   const checkPin = (e) => {
     e?.preventDefault?.()
@@ -167,7 +166,7 @@ function AdminPanel() {
 
         <div className="w-actions">
           <button className="w-primary" onClick={issue}>Generar</button>
-          <a className="w-success" style={{textAlign:'center'}} href={`/?view=manage&ws=${encodeURIComponent(WS)}`}>Gestionar Licencias</a>
+          <a className="w-success" style={{textAlign:'center'}} href={`/?ws=${encodeURIComponent(WS)}`} >Ir al Wizard</a>
         </div>
 
         {msg && <div className="w-hint" style={{color:'#ff6', marginTop:8}}>{msg}</div>}
@@ -186,299 +185,7 @@ function AdminPanel() {
             <div className="w-hint">Expiran en {months} mes(es) desde hoy.</div>
           </div>
         )}
-
-        <div className="w-hint" style={{marginTop:20}}>
-          <a href={`/?ws=${encodeURIComponent(WS)}`}>← Volver al Wizard</a>
-        </div>
       </div>
-    </div>
-  )
-}
-
-/* ======================= GESTOR DE LICENCIAS ======================= */
-function ManageLicenses() {
-  const q = new URLSearchParams(location.search)
-  const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || 'http://localhost:3000'
-  const WS = sanitizeBaseUrl(RAW_WS)
-
-  const [authenticated, setAuthenticated] = useState(false)
-  const [adminKey, setAdminKey] = useState('')
-  const [msg, setMsg] = useState('')
-  const [view, setView] = useState('dashboard')
-  const [stats, setStats] = useState(null)
-  const [licenses, setLicenses] = useState([])
-  const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState('all')
-  const [selectedLicense, setSelectedLicense] = useState(null)
-
-  const checkAuth = async () => {
-    try {
-      const res = await fetch(`${WS}/admin/stats`, {
-        headers: { 'x-admin-key': adminKey }
-      })
-      if (res.ok) {
-        setAuthenticated(true)
-        loadStats()
-      } else {
-        setMsg('Admin Key incorrecta')
-      }
-    } catch {
-      setMsg('Error de conexión')
-    }
-  }
-
-  const loadStats = async () => {
-    try {
-      const res = await fetch(`${WS}/admin/stats`, {
-        headers: { 'x-admin-key': adminKey }
-      })
-      const data = await res.json()
-      if (data.ok) setStats(data.stats)
-    } catch {}
-  }
-
-  const loadLicenses = async () => {
-    try {
-      const params = new URLSearchParams()
-      if (filter !== 'all') params.set('status', filter)
-      if (search) params.set('search', search)
-      
-      const res = await fetch(`${WS}/admin/license/list?${params}`, {
-        headers: { 'x-admin-key': adminKey }
-      })
-      const data = await res.json()
-      if (data.ok) setLicenses(data.licenses)
-    } catch {}
-  }
-
-  const viewDetails = async (key) => {
-    try {
-      const res = await fetch(`${WS}/admin/license/${key}`, {
-        headers: { 'x-admin-key': adminKey }
-      })
-      const data = await res.json()
-      if (data.ok) {
-        setSelectedLicense(data.license)
-        setView('details')
-      }
-    } catch {}
-  }
-
-  const extendLicense = async (key) => {
-    const months = prompt('¿Cuántos meses extender?', '1')
-    if (!months) return
-    try {
-      const res = await fetch(`${WS}/admin/license/${key}/extend`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-admin-key': adminKey },
-        body: JSON.stringify({ months: Number(months) })
-      })
-      if (res.ok) {
-        alert(`Extendida por ${months} meses`)
-        loadLicenses()
-        loadStats()
-      }
-    } catch {}
-  }
-
-  const revokeLicense = async (key) => {
-    if (!confirm('¿Revocar esta licencia?')) return
-    try {
-      const res = await fetch(`${WS}/admin/license/${key}/revoke`, {
-        method: 'POST',
-        headers: { 'x-admin-key': adminKey }
-      })
-      if (res.ok) {
-        alert('Licencia revocada')
-        loadLicenses()
-        loadStats()
-      }
-    } catch {}
-  }
-
-  const exportCSV = () => {
-    const csv = [
-      ['Key', 'Estado', 'Días Restantes', 'Creada', 'Expira', 'Último Uso', 'Usos'].join(','),
-      ...licenses.map(l => [
-        l.key,
-        l.status,
-        l.daysRemaining,
-        new Date(l.createdAt).toLocaleDateString(),
-        new Date(l.expiresAt).toLocaleDateString(),
-        l.lastUsed ? new Date(l.lastUsed).toLocaleDateString() : 'Nunca',
-        l.usageCount || 0
-      ].join(','))
-    ].join('\n')
-    
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `licenses_${Date.now()}.csv`
-    a.click()
-  }
-
-  useEffect(() => {
-    if (authenticated && view === 'list') loadLicenses()
-  }, [authenticated, view, search, filter])
-
-  if (!authenticated) {
-    return (
-      <div className="gate">
-        <div className="g-card">
-          <div className="g-title">🔐 Gestor de Licencias</div>
-          <div className="g-field">
-            <input 
-              type="password"
-              value={adminKey}
-              onChange={e=>setAdminKey(e.target.value)}
-              placeholder="Admin Key (pancacho123)"
-              onKeyPress={e => e.key === 'Enter' && checkAuth()}
-            />
-          </div>
-          {msg && <div className="g-msg">{msg}</div>}
-          <div className="g-actions">
-            <button className="g-primary" onClick={checkAuth}>Acceder</button>
-            <a className="g-ghost" href={`/?ws=${encodeURIComponent(WS)}`}>Volver</a>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="manage-panel">
-      <div className="manage-header">
-        <h1>⚡ Gestor de Licencias</h1>
-        <div className="manage-nav">
-          <a href={`/?view=admin&ws=${encodeURIComponent(WS)}`} className="nav-link">➕ Crear</a>
-          <a href={`/?ws=${encodeURIComponent(WS)}`} className="nav-link">🏠 Inicio</a>
-        </div>
-      </div>
-
-      <div className="manage-tabs">
-        <button className={view === 'dashboard' ? 'tab active' : 'tab'} onClick={()=>{setView('dashboard'); loadStats()}}>
-          📊 Dashboard
-        </button>
-        <button className={view === 'list' ? 'tab active' : 'tab'} onClick={()=>{setView('list'); loadLicenses()}}>
-          📋 Todas las Licencias
-        </button>
-      </div>
-
-      {view === 'dashboard' && stats && (
-        <div className="manage-content">
-          <div className="stats-grid">
-            <div className="stat-card blue">
-              <div className="stat-number">{stats.total}</div>
-              <div className="stat-label">Total</div>
-            </div>
-            <div className="stat-card green">
-              <div className="stat-number">{stats.active}</div>
-              <div className="stat-label">Activas</div>
-            </div>
-            <div className="stat-card orange">
-              <div className="stat-number">{stats.expired}</div>
-              <div className="stat-label">Expiradas</div>
-            </div>
-            <div className="stat-card red">
-              <div className="stat-number">{stats.revoked}</div>
-              <div className="stat-label">Revocadas</div>
-            </div>
-            <div className="stat-card purple">
-              <div className="stat-number">{stats.activated}</div>
-              <div className="stat-label">Activadas</div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {view === 'list' && (
-        <div className="manage-content">
-          <div className="toolbar">
-            <input
-              className="search-input"
-              placeholder="🔍 Buscar por key o usuario..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
-            <select className="filter-select" value={filter} onChange={e => setFilter(e.target.value)}>
-              <option value="all">Todas</option>
-              <option value="active">Activas</option>
-              <option value="expired">Expiradas</option>
-              <option value="revoked">Revocadas</option>
-            </select>
-            <button className="btn-export" onClick={exportCSV}>📥 Exportar</button>
-          </div>
-
-          <div className="licenses-table">
-            <div className="table-header">
-              <div>Key</div>
-              <div>Estado</div>
-              <div>Días</div>
-              <div>Creada</div>
-              <div>Último Uso</div>
-              <div>Usos</div>
-              <div>Acciones</div>
-            </div>
-            {licenses.map(l => (
-              <div className="table-row" key={l.key}>
-                <div><code>{l.key}</code></div>
-                <div><span className={`badge ${l.status}`}>{l.status}</span></div>
-                <div>{l.isExpired ? '⏰ Exp' : `${l.daysRemaining}d`}</div>
-                <div>{new Date(l.createdAt).toLocaleDateString()}</div>
-                <div>{l.lastUsed ? new Date(l.lastUsed).toLocaleDateString() : '—'}</div>
-                <div>{l.usageCount || 0}</div>
-                <div className="table-actions">
-                  <button className="btn-sm view" onClick={()=>viewDetails(l.key)}>👁️</button>
-                  <button className="btn-sm extend" onClick={()=>extendLicense(l.key)}>⏱️</button>
-                  <button className="btn-sm revoke" onClick={()=>revokeLicense(l.key)}>🚫</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {view === 'details' && selectedLicense && (
-        <div className="manage-content">
-          <button className="btn-back" onClick={()=>setView('list')}>← Volver</button>
-          <h2>Detalles de Licencia</h2>
-          <div className="detail-card">
-            <div className="detail-row">
-              <strong>Key:</strong>
-              <code>{selectedLicense.key}</code>
-            </div>
-            <div className="detail-row">
-              <strong>Estado:</strong>
-              <span className={`badge ${selectedLicense.status}`}>{selectedLicense.status}</span>
-            </div>
-            <div className="detail-row">
-              <strong>Días restantes:</strong>
-              {selectedLicense.daysRemaining}
-            </div>
-            <div className="detail-row">
-              <strong>Creada:</strong>
-              {new Date(selectedLicense.createdAt).toLocaleString()}
-            </div>
-            <div className="detail-row">
-              <strong>Expira:</strong>
-              {new Date(selectedLicense.expiresAt).toLocaleString()}
-            </div>
-            <div className="detail-row">
-              <strong>Activada:</strong>
-              {selectedLicense.activatedAt ? new Date(selectedLicense.activatedAt).toLocaleString() : 'No activada'}
-            </div>
-            <div className="detail-row">
-              <strong>Último uso:</strong>
-              {selectedLicense.lastUsed ? new Date(selectedLicense.lastUsed).toLocaleString() : 'Nunca'}
-            </div>
-            <div className="detail-row">
-              <strong>Usos totales:</strong>
-              {selectedLicense.usageCount || 0}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -500,6 +207,7 @@ function AuctionOverlay() {
   const [inDelay, setInDelay] = useState(false)
   const [delayEndsAt, setDelayEndsAt] = useState(0)
 
+  // tablero UI
   const [tInit, setTInit] = useState(60)
   const [delayS, setDelayS] = useState(10)
   const [minEntry, setMinEntry] = useState(20)
@@ -541,6 +249,7 @@ function AuctionOverlay() {
   const ss = String(Math.floor((paused ? 0 : (inDelay ? delayRemain : remain)) / 1000) % 60).padStart(2, '0')
 
   useEffect(() => {
+    // Detectar cuando termina la subasta principal
     if (!paused && !inDelay && remain === 0 && (state.endsAt || 0) > 0 && state.endsAt !== lastEndsAtRef.current) {
       lastEndsAtRef.current = state.endsAt
       const win = state.top?.[0]
@@ -548,14 +257,19 @@ function AuctionOverlay() {
         setCurrentWinner(win)
         setWinners(w => [{ name: win.user, total: win.total }, ...w])
       }
+      
+      // Iniciar delay (los regalos siguen contando)
       setInDelay(true)
       setDelayEndsAt(Date.now() + (delayS * 1000))
     }
     
+    // Detectar cuando termina el delay - MOSTRAR GANADOR FINAL
     if (inDelay && delayRemain === 0 && delayEndsAt > 0) {
+      // Actualizar ganador final con datos del delay
       const finalWinner = state.top?.[0]
       if (finalWinner) {
         setCurrentWinner(finalWinner)
+        // Actualizar en la lista de ganadores
         setWinners(w => {
           const newWinners = [...w]
           if (newWinners.length > 0) {
@@ -569,6 +283,7 @@ function AuctionOverlay() {
       setDelayEndsAt(0)
       setShowWinner(true)
       
+      // Ocultar pantalla de ganador después de 5 segundos
       setTimeout(() => {
         setShowWinner(false)
         setCurrentWinner(null)
@@ -594,7 +309,7 @@ function AuctionOverlay() {
   }
   
   const addTime = async (plus) => {
-    if (inDelay) return
+    if (inDelay) return // No permitir añadir tiempo durante el delay
     const remainS = Math.max(0, Math.floor(remain/1000))
     const next = Math.max(1, remainS + plus)
     await postJSON(`${WS}/${room}/auction/start`, { durationSec: next, title: state.title })
@@ -609,8 +324,10 @@ function AuctionOverlay() {
 
   return (
     <>
+      {/* Botón Engranaje */}
       <button className="gear-floating" title="Abrir panel de control" onClick={()=>setDashboard(true)}>⚙️</button>
 
+      {/* Pantalla de GANADOR */}
       {showWinner && currentWinner && (
         <div className="winner-screen">
           <div className="winner-card">
@@ -627,6 +344,7 @@ function AuctionOverlay() {
         </div>
       )}
 
+      {/* Panel compacto en vivo */}
       {!showWinner && (
         <div className="panel">
           <div className="panel-container">
@@ -648,6 +366,7 @@ function AuctionOverlay() {
         </div>
       )}
 
+      {/* Dashboard estilo imagen */}
       {dashboard && (
         <div className="dash-wrap" onClick={()=>setDashboard(false)}>
           <div className="dash-card" onClick={e=>e.stopPropagation()}>
@@ -686,4 +405,128 @@ function AuctionOverlay() {
                     ))}
                   </div>
                   <div className="box-footer">
-                    Total Participantes: {total
+                    Total Participantes: {totalParticipants} &nbsp;|&nbsp; Total Diamantes: {state.donationsTotal || 0}
+                  </div>
+                </div>
+              </div>
+
+              <div className="dash-col">
+                <div className="box box-purple">
+                  <div className="box-header">🎮 CONTROLES</div>
+                  <div className="controls">
+                    <div className="fields-3">
+                      <div>
+                        <label>Tiempo inicial (s):</label>
+                        <input className="input" type="number" value={tInit} onChange={e=>setTInit(Number(e.target.value)||0)} />
+                      </div>
+                      <div>
+                        <label>Delay (s):</label>
+                        <input className="input" type="number" value={delayS} onChange={e=>setDelayS(Number(e.target.value)||0)} />
+                      </div>
+                      <div>
+                        <label>Mínimo de entrada:</label>
+                        <input className="input" type="number" value={minEntry} onChange={e=>setMinEntry(Number(e.target.value)||0)} />
+                      </div>
+                    </div>
+
+                    <div className="btn-row">
+                      <button className="btn btn-green" onClick={()=>startAuction(tInit)}>▶️ Iniciar</button>
+                      <button className="btn btn-orange" onClick={()=>setPaused(p=>!p)}>{paused ? '⏯ Reanudar' : '⏸ Pausar'}</button>
+                    </div>
+                    <div className="btn-row">
+                      <button className="btn btn-red" onClick={finalizeAuction}>🏁 Finalizar</button>
+                      <button className="btn btn-gray" onClick={()=>startAuction(tInit)}>🔁 Restart</button>
+                    </div>
+
+                    <div className="fields-1">
+                      <label>Modificar tiempo (s):</label>
+                      <input className="input" type="number" value={editDelta} onChange={e=>setEditDelta(Number(e.target.value)||0)} />
+                      <div className="btn-row">
+                        <button className="btn btn-green" onClick={()=>addTime(+Math.abs(editDelta))}>+</button>
+                        <button className="btn btn-red" onClick={()=>addTime(-Math.abs(editDelta))}>-</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="progress-strip"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
+/* ======================= WIZARD ======================= */
+function RoomWizard() {
+  const q = new URLSearchParams(location.search)
+  const [room, setRoom] = useState(randomRoom())
+  const [top, setTop] = useState(3)
+  const [user, setUser] = useState('')
+  const [ws] = useState(q.get('ws') || import.meta.env.VITE_WS_URL || 'http://localhost:3000')
+
+  const makeUrl = () => {
+    const p = new URLSearchParams()
+    p.set('ws', sanitizeBaseUrl(ws))
+    p.set('room', room.trim())
+    p.set('top', String(top))
+    const key = localStorage.getItem('LIC_KEY')
+    if (key) p.set('key', key)
+    if (user.trim()) p.set('autouser', user.replace(/^@+/, '').trim())
+    return `${location.origin}/?${p.toString()}`
+  }
+
+  return (
+    <div className="wizard">
+      <div className="w-card">
+        <h2>Crear mi sala de subasta</h2>
+
+        <div className="w-field">
+          <label>Nombre de sala (room)</label>
+          <div className="w-row">
+            <input value={room} onChange={e=>setRoom(e.target.value)} placeholder="miSala123" />
+            <button className="w-btn" onClick={()=>setRoom(randomRoom())}>Aleatorio</button>
+          </div>
+        </div>
+
+        <div className="w-field">
+          <label>Top a mostrar</label>
+          <select value={top} onChange={e=>setTop(Number(e.target.value))}>
+            <option value={1}>Top 1</option>
+            <option value={3}>Top 3</option>
+            <option value={5}>Top 5</option>
+          </select>
+        </div>
+
+        <div className="w-field">
+          <label>Usuario de TikTok (opcional, sin @)</label>
+          <input value={user} onChange={e=>setUser(e.target.value)} placeholder="sticx33" />
+        </div>
+
+        <div className="w-actions">
+          <button className="w-primary" onClick={()=>{ location.href = makeUrl() }}>Abrir overlay</button>
+          <button className="w-success" onClick={async()=>{
+            const link = makeUrl()
+            try { await navigator.clipboard.writeText(link); alert('Link copiado:\n'+link) }
+            catch { prompt('Copia el link:', link) }
+          }}>Copiar link</button>
+        </div>
+
+        <div className="w-hint">Pega el link en <b>Browser Source</b> de TikTok LIVE Studio.</div>
+        <div className="w-hint" style={{marginTop:8}}>
+          Panel Admin: <a href={`/?view=admin&ws=${encodeURIComponent(sanitizeBaseUrl(ws))}`}>abrir aquí</a>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ======================= Helpers ======================= */
+function sanitizeBaseUrl(u){ return String(u||'').trim().replace(/\/+$/,'') }
+async function postJSON(url, body){
+  const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body ?? {}) })
+  const text = await r.text(); return { ok: r.ok, status: r.status, data: text ? JSON.parse(text) : {} }
+}
+function randomRoom(){ return 'room-' + Math.random().toString(36).slice(2,7) }
