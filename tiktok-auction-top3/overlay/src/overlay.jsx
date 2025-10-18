@@ -611,7 +611,7 @@ function RoomWizard() {
         <div className="w-field">
           <label>Nombre de sala</label>
           <div className="w-row">
-            <input value={room} onChange={e=>setRoom(e.target.value)} placeholder="miSala123 />
+            <input value={room} onChange={e=>setRoom(e.target.value)} placeholder="miSala123" />
             <button className="w-btn" onClick={()=>setRoom(randomRoom())}>Aleatorio</button>
           </div>
         </div>
