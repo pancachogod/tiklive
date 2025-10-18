@@ -33,28 +33,36 @@ const io = new Server(server, {
   transports: ['websocket', 'polling'],
 });
 
-/* ================== POSTGRESQL DATABASE ================== */
+/* ================== POSTGRESQL DATABASE (SUPABASE) ================== */
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL 
-    ? { rejectUnauthorized: false } 
-    : false,
-  connectionTimeoutMillis: 10000, // 10 segundos
+  ssl: {
+    rejectUnauthorized: false
+  },
+  connectionTimeoutMillis: 20000, // 20 segundos para Supabase
   idleTimeoutMillis: 30000,
-  max: 20 // máximo de conexiones
+  max: 10 // Supabase free tier tiene límite de conexiones
 });
 
-// Test de conexión
+// Manejador de errores del pool
 pool.on('error', (err) => {
-  console.error('❌ Error inesperado en el pool de PostgreSQL:', err);
+  console.error('❌ Error inesperado en el pool de PostgreSQL:', err.message);
 });
 
-// Inicializar tablas
+// Test y creación de tablas con reintentos
 async function initDatabase() {
-  let retries = 5;
-  while (retries > 0) {
+  const maxRetries = 5;
+  let currentRetry = 0;
+
+  while (currentRetry < maxRetries) {
     try {
-      await pool.query('SELECT NOW()'); // Test de conexión
+      console.log(`🔄 Intentando conectar a Supabase (intento ${currentRetry + 1}/${maxRetries})...`);
+      
+      // Test de conexión
+      const testResult = await pool.query('SELECT NOW()');
+      console.log('✅ Conexión a Supabase establecida:', testResult.rows[0].now);
+
+      // Crear tabla si no existe
       await pool.query(`
         CREATE TABLE IF NOT EXISTS users (
           id SERIAL PRIMARY KEY,
@@ -68,23 +76,60 @@ async function initDatabase() {
           usage_count INTEGER DEFAULT 0
         )
       `);
-      console.log('✅ Base de datos inicializada correctamente');
-      return;
+
+      // Crear índices para mejorar el rendimiento
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_users_tiktok_user ON users(tiktok_user);
+        CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
+        CREATE INDEX IF NOT EXISTS idx_users_expires_at ON users(expires_at);
+      `);
+
+      console.log('✅ Base de datos inicializada correctamente con índices');
+      
+      // Mostrar estadísticas
+      const countResult = await pool.query('SELECT COUNT(*) FROM users');
+      console.log(`📊 Total de usuarios en la base de datos: ${countResult.rows[0].count}`);
+      
+      return; // Salir si todo fue exitoso
+      
     } catch (err) {
-      retries--;
-      console.error(`❌ Error conectando a la base de datos (${retries} intentos restantes):`, err.message);
-      if (retries === 0) {
-        console.error('❌ No se pudo conectar a la base de datos después de varios intentos');
-        console.error('Verifica tu DATABASE_URL y que la base de datos esté accesible');
-      } else {
-        await new Promise(resolve => setTimeout(resolve, 3000)); // Esperar 3 segundos
+      currentRetry++;
+      console.error(`❌ Error en intento ${currentRetry}:`, err.message);
+      console.error('Código de error:', err.code);
+      
+      if (currentRetry >= maxRetries) {
+        console.error('❌ No se pudo conectar a Supabase después de varios intentos');
+        console.error('📋 Verifica lo siguiente:');
+        console.error('   1. Tu DATABASE_URL está configurada en Render');
+        console.error('   2. La URL es correcta (postgres://... de Supabase)');
+        console.error('   3. Tu base de datos en Supabase está activa');
+        console.error('   4. No has excedido el límite de conexiones');
+        
+        // No lanzar error para que el servidor inicie de todos modos
+        console.log('⚠️ Servidor iniciará sin conexión a la base de datos');
+        return;
       }
+      
+      // Esperar antes del siguiente intento (backoff exponencial)
+      const waitTime = Math.min(1000 * Math.pow(2, currentRetry), 10000);
+      console.log(`⏳ Esperando ${waitTime}ms antes del siguiente intento...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
     }
   }
 }
 
 initDatabase();
 
+// Función helper para verificar la conexión antes de queries importantes
+async function ensureConnection() {
+  try {
+    await pool.query('SELECT 1');
+    return true;
+  } catch (err) {
+    console.error('❌ Conexión perdida, reintentando...', err.message);
+    return false;
+  }
+}
 /* =====================================================
    MODELO MULTI-ROOM (subasta por sala)
    ⚠️ NO MODIFICADO - TODO IGUAL
