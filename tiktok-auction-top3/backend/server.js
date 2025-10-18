@@ -305,7 +305,6 @@ app.post('/user/verify', async (req, res) => {
 /* ============ ADMIN ENDPOINTS ============ */
 
 function requireAdmin(req, res, next) {
-  const ADMIN_KEY = 'pancacho123';
   const headerKey = String(req.headers['x-admin-key'] || '').trim();
   if (headerKey !== ADMIN_KEY) {
     return res.status(401).json({ ok: false, error: 'unauthorized' });
