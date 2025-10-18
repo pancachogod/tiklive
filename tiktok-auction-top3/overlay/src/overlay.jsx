@@ -2,6 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
 import './style.css'
 
+// ⚠️ CAMBIO CRÍTICO: URL correcta del backend
+const DEFAULT_WS = 'https://tiklive-63mk.onrender.com'
+
 /* =================== App (router mínimo por query) =================== */
 export default function App() {
   const q = new URLSearchParams(location.search)
@@ -20,7 +23,7 @@ export default function App() {
 /* ============== Verificación por Usuario TikTok ============== */
 function OverlayWithUser({ children }) {
   const q = new URLSearchParams(location.search)
-  const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || 'https://tiklive-63mk.onrender.com'
+  const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || DEFAULT_WS
   const WS = sanitizeBaseUrl(RAW_WS)
   const [ok, setOk] = useState(false)
   const [busy, setBusy] = useState(true)
@@ -33,13 +36,22 @@ function OverlayWithUser({ children }) {
       const u = (q.get('user') || localStorage.getItem('TIKTOK_USER') || '').trim().replace(/^@+/, '')
       if (!u) { setBusy(false); return }
       try {
+        console.log('🔍 Verificando usuario:', u)
+        console.log('📡 Backend URL:', WS)
+        
         const { ok: httpOK, data } = await postJSON(`${WS}/user/verify`, { tiktokUser: u })
+        console.log('✅ Respuesta del servidor:', data)
+        
         if (httpOK && data?.ok) {
           localStorage.setItem('TIKTOK_USER', u)
           setDaysRemaining(data.daysRemaining || 0)
           setOk(true)
+        } else {
+          console.error('❌ Usuario no verificado:', data?.error)
         }
-      } catch {}
+      } catch (err) {
+        console.error('❌ Error de conexión:', err)
+      }
       setBusy(false)
     })()
   }, [WS])
@@ -53,7 +65,10 @@ function OverlayWithUser({ children }) {
       const u = (tiktokUser || '').trim().replace(/^@+/, '')
       if (!u) { setMsg('Ingresa tu usuario de TikTok.'); return }
       try {
+        console.log('🔄 Intentando verificar:', u)
         const { ok: httpOK, data } = await postJSON(`${WS}/user/verify`, { tiktokUser: u })
+        console.log('📥 Respuesta:', data)
+        
         if (httpOK && data?.ok) {
           localStorage.setItem('TIKTOK_USER', u)
           setDaysRemaining(data.daysRemaining || 0)
@@ -65,7 +80,10 @@ function OverlayWithUser({ children }) {
           else if (error === 'user-not-found') setMsg('Usuario no encontrado. Contacta al administrador.')
           else setMsg('No tienes acceso.')
         }
-      } catch { setMsg('No se pudo contactar con el servidor.') }
+      } catch (err) { 
+        console.error('❌ Error:', err)
+        setMsg('No se pudo contactar con el servidor.') 
+      }
     }
     return (
       <div className="gate">
@@ -96,28 +114,21 @@ function OverlayWithUser({ children }) {
   )
 }
 
-/* ======================= ADMIN PANEL (gestión de usuarios) ======================= */
+/* ======================= ADMIN PANEL ======================= */
 function AdminPanel() {
   const q = new URLSearchParams(location.search)
-  const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || 'https://tiklive-63mk.onrender.com'
+  const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || DEFAULT_WS
   const WS = sanitizeBaseUrl(RAW_WS)
 
   const [adminKey, setAdminKey] = useState('')
   const [authenticated, setAuthenticated] = useState(false)
   const [msg, setMsg] = useState('')
-
-  const [view, setView] = useState('dashboard') // 'dashboard' | 'list' | 'activate' | 'details'
+  const [view, setView] = useState('dashboard')
   const [stats, setStats] = useState(null)
-
-  // Listado
   const [users, setUsers] = useState([])
   const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState('all') // all|active|expired|disabled
-
-  // Detalle
+  const [filter, setFilter] = useState('all')
   const [selectedUser, setSelectedUser] = useState(null)
-
-  // Activación
   const [newUser, setNewUser] = useState('')
   const [days, setDays] = useState(30)
 
@@ -230,28 +241,11 @@ function AdminPanel() {
     } catch {}
   }
 
-  const extendUser = async (tiktokUser, extraDays) => {
-    if (extraDays < 1) { alert('Días inválidos'); return }
-    try {
-      const res = await fetch(`${WS}/admin/user/${tiktokUser}/extend`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-admin-key': adminKey },
-        body: JSON.stringify({ days: extraDays })
-      })
-      if (res.ok) {
-        alert(`Extensión aplicada (+${extraDays} días)`)
-        if (view === 'details') viewDetails(tiktokUser)
-        if (view === 'list') loadUsers()
-        loadStats()
-      }
-    } catch {}
-  }
-
   const deleteUser = async (tiktokUser) => {
     if (!confirm(`¿Eliminar a @${tiktokUser}? Esta acción no se puede deshacer.`)) return
     try {
-      const res = await fetch(`${WS}/admin/user/${tiktokUser}`, {
-        method: 'DELETE',
+      const res = await fetch(`${WS}/admin/user/${tiktokUser}/delete`, {
+        method: 'POST',
         headers: { 'x-admin-key': adminKey }
       })
       if (res.ok) {
@@ -268,8 +262,10 @@ function AdminPanel() {
       <div className="gate">
         <form className="g-card" onSubmit={checkAuth}>
           <div className="g-title">🔒 Panel Admin</div>
+          <div className="g-subtitle">Backend: {WS}</div>
           <div className="g-field">
             <input 
+              type="password"
               value={adminKey} 
               onChange={e=>setAdminKey(e.target.value)} 
               placeholder="ADMIN_KEY" 
@@ -278,7 +274,7 @@ function AdminPanel() {
           {msg && <div className="g-msg">{msg}</div>}
           <div className="g-actions">
             <button className="g-primary" type="submit">Acceder</button>
-            <a className="g-ghost" href={`/?ws=${encodeURIComponent(WS)}`}>Volver al Wizard</a>
+            <a className="g-ghost" href={`/?ws=${encodeURIComponent(WS)}`}>Volver</a>
           </div>
         </form>
       </div>
@@ -288,8 +284,7 @@ function AdminPanel() {
   return (
     <div className="wizard">
       <div className="w-card" style={{maxWidth: 940}}>
-        <h2>Admin</h2>
-
+        <h2>Admin Panel</h2>
         <div className="tabs">
           <button className={`tab-btn ${view==='dashboard'?'active':''}`} onClick={()=>{setView('dashboard'); loadStats()}}>Dashboard</button>
           <button className={`tab-btn ${view==='list'?'active':''}`} onClick={()=>{setView('list'); loadUsers()}}>Usuarios</button>
@@ -298,18 +293,9 @@ function AdminPanel() {
 
         {view==='dashboard' && (
           <div className="grid-3">
-            <div className="stat">
-              <div className="stat-title">Activos</div>
-              <div className="stat-value">{stats?.active ?? '-'}</div>
-            </div>
-            <div className="stat">
-              <div className="stat-title">Expirados</div>
-              <div className="stat-value">{stats?.expired ?? '-'}</div>
-            </div>
-            <div className="stat">
-              <div className="stat-title">Deshabilitados</div>
-              <div className="stat-value">{stats?.disabled ?? '-'}</div>
-            </div>
+            <div className="stat"><div className="stat-title">Activos</div><div className="stat-value">{stats?.active ?? '-'}</div></div>
+            <div className="stat"><div className="stat-title">Expirados</div><div className="stat-value">{stats?.expired ?? '-'}</div></div>
+            <div className="stat"><div className="stat-title">Deshabilitados</div><div className="stat-value">{stats?.disabled ?? '-'}</div></div>
             <div className="w-actions" style={{gridColumn:'1 / -1'}}>
               <button className="w-primary" onClick={loadStats}>Refrescar</button>
               <a className="w-success" href={`/?ws=${encodeURIComponent(WS)}`}>Ir al Wizard</a>
@@ -320,7 +306,7 @@ function AdminPanel() {
         {view==='list' && (
           <>
             <div className="w-row" style={{gap:8}}>
-              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar usuario…" />
+              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar..." />
               <select value={filter} onChange={e=>setFilter(e.target.value)}>
                 <option value="all">Todos</option>
                 <option value="active">Activos</option>
@@ -329,14 +315,13 @@ function AdminPanel() {
               </select>
               <button className="w-btn" onClick={loadUsers}>Buscar</button>
             </div>
-
             <div className="list-table" style={{marginTop:12}}>
               {users.length===0 && <div className="w-hint">Sin resultados</div>}
               {users.map(u=>(
                 <div key={u.tiktokUser} className="row-lite">
                   <div className="cell">@{u.tiktokUser}</div>
                   <div className="cell">Estado: {u.status}</div>
-                  <div className="cell">Días restantes: {u.daysRemaining ?? '-'}</div>
+                  <div className="cell">Días: {u.daysRemaining ?? '-'}</div>
                   <div className="cell actions">
                     <button className="w-btn" onClick={()=>viewDetails(u.tiktokUser)}>Detalles</button>
                     {u.status==='disabled'
@@ -373,19 +358,13 @@ function AdminPanel() {
             <h3>@{selectedUser.tiktokUser}</h3>
             <div className="w-hint">Estado: {selectedUser.status}</div>
             <div className="w-hint">Días restantes: {selectedUser.daysRemaining ?? '-'}</div>
-            <div className="w-hint">Expira el: {selectedUser.expiresAt ? new Date(selectedUser.expiresAt).toLocaleString() : '-'}</div>
-
+            <div className="w-hint">Expira: {selectedUser.expiresAt ? new Date(selectedUser.expiresAt).toLocaleString() : '-'}</div>
             <div className="w-row" style={{gap:8, marginTop:12}}>
               {selectedUser.status==='disabled'
                 ? <button className="w-success" onClick={()=>enableUser(selectedUser.tiktokUser)}>Habilitar</button>
                 : <button className="w-btn" onClick={()=>disableUser(selectedUser.tiktokUser)}>Deshabilitar</button>}
               <button className="w-danger" onClick={()=>deleteUser(selectedUser.tiktokUser)}>Eliminar</button>
               <button className="w-btn" onClick={()=>setView('list')}>Volver</button>
-            </div>
-
-            <div className="w-field" style={{marginTop:16}}>
-              <label>Extender días</label>
-              <ExtendForm onExtend={(n)=>extendUser(selectedUser.tiktokUser, n)} />
             </div>
           </div>
         )}
@@ -394,21 +373,11 @@ function AdminPanel() {
   )
 }
 
-function ExtendForm({ onExtend }) {
-  const [n, setN] = useState(7)
-  return (
-    <div className="w-row" style={{gap:8}}>
-      <input type="number" min="1" value={n} onChange={e=>setN(Number(e.target.value)||1)} />
-      <button className="w-primary" onClick={()=>onExtend(Math.max(1, Number(n)||1))}>Aplicar</button>
-    </div>
-  )
-}
-
-/* ======================= OVERLAY (temporizador + top + dashboard) ======================= */
+/* ======================= OVERLAY ======================= */
 function AuctionOverlay() {
   const q = useMemo(() => new URLSearchParams(location.search), [])
   const room = (q.get('room') || 'demo').trim()
-  const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || 'https://tiklive-63mk.onrender.com'
+  const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || DEFAULT_WS
   const WS = sanitizeBaseUrl(RAW_WS)
   const initialTitle = q.get('title') || 'Subasta'
   const autoUser = (q.get('autouser') || '').replace(/^@+/, '').trim()
@@ -420,13 +389,10 @@ function AuctionOverlay() {
   const [paused, setPaused] = useState(false)
   const [inDelay, setInDelay] = useState(false)
   const [delayEndsAt, setDelayEndsAt] = useState(0)
-
-  // tablero UI
   const [tInit, setTInit] = useState(60)
   const [delayS, setDelayS] = useState(10)
   const [minEntry, setMinEntry] = useState(20)
   const [editDelta, setEditDelta] = useState(10)
-
   const [winners, setWinners] = useState([])
   const [totalParticipants, setTotalParticipants] = useState(0)
   const [showWinner, setShowWinner] = useState(false)
@@ -435,10 +401,13 @@ function AuctionOverlay() {
   const lastEndsAtRef = useRef(0)
 
   useEffect(() => {
-    const socket = io(WS, { transports:['websocket'], query:{ room } })
+    console.log('🔌 Conectando a:', WS, 'Room:', room)
+    const socket = io(WS, { transports:['websocket', 'polling'], query:{ room } })
     socketRef.current = socket
-    socket.on('state', st => setState(prev => ({ ...prev, ...st })))
-    socket.on('donation', d => setState(prev => ({ ...prev, top: d.top, donationsTotal: d.donationsTotal ?? prev.donationsTotal })))
+    socket.on('connect', () => console.log('✅ Conectado'))
+    socket.on('disconnect', () => console.log('❌ Desconectado'))
+    socket.on('state', st => { console.log('📡 State:', st); setState(prev => ({ ...prev, ...st })) })
+    socket.on('donation', d => { console.log('💎 Donación:', d); setState(prev => ({ ...prev, top: d.top, donationsTotal: d.donationsTotal ?? prev.donationsTotal })) })
     return () => socket.close()
   }, [WS, room])
 
@@ -458,12 +427,10 @@ function AuctionOverlay() {
 
   const remain = Math.max(0, (state.endsAt || 0) - now)
   const delayRemain = Math.max(0, delayEndsAt - now)
-  
   const mm = String(Math.floor((paused ? 0 : (inDelay ? delayRemain : remain)) / 1000 / 60)).padStart(2, '0')
   const ss = String(Math.floor((paused ? 0 : (inDelay ? delayRemain : remain)) / 1000) % 60).padStart(2, '0')
 
   useEffect(() => {
-    // Detectar cuando termina la subasta principal
     if (!paused && !inDelay && remain === 0 && (state.endsAt || 0) > 0 && state.endsAt !== lastEndsAtRef.current) {
       lastEndsAtRef.current = state.endsAt
       const win = state.top?.[0]
@@ -471,77 +438,47 @@ function AuctionOverlay() {
         setCurrentWinner(win)
         setWinners(w => [{ name: win.user, total: win.total }, ...w])
       }
-      
-      // Iniciar delay (los regalos siguen contando)
       setInDelay(true)
       setDelayEndsAt(Date.now() + (delayS * 1000))
     }
-    
-    // Detectar cuando termina el delay - MOSTRAR GANADOR FINAL
     if (inDelay && delayRemain === 0 && delayEndsAt > 0) {
-      // Actualizar ganador final con datos del delay
       const finalWinner = state.top?.[0]
       if (finalWinner) {
         setCurrentWinner(finalWinner)
-        // Actualizar en la lista de ganadores
         setWinners(w => {
           const newWinners = [...w]
-          if (newWinners.length > 0) {
-            newWinners[0] = { name: finalWinner.user, total: finalWinner.total }
-          }
+          if (newWinners.length > 0) newWinners[0] = { name: finalWinner.user, total: finalWinner.total }
           return newWinners
         })
       }
-      
       setInDelay(false)
       setDelayEndsAt(0)
       setShowWinner(true)
-      
-      // Ocultar pantalla de ganador después de 5 segundos
-      setTimeout(() => {
-        setShowWinner(false)
-        setCurrentWinner(null)
-      }, 5000)
+      setTimeout(() => { setShowWinner(false); setCurrentWinner(null) }, 5000)
     }
-    
     setTotalParticipants(state.top?.length || 0)
   }, [paused, remain, state.endsAt, state.top, inDelay, delayRemain, delayEndsAt, delayS])
 
   const startAuction = async (seconds) => {
-    const s = Math.max(1, Number(seconds)||0)
-    setPaused(false)
-    setInDelay(false)
-    setDelayEndsAt(0)
-    await postJSON(`${WS}/${room}/auction/start`, { durationSec: s, title: state.title })
+    setPaused(false); setInDelay(false); setDelayEndsAt(0)
+    await postJSON(`${WS}/${room}/auction/start`, { durationSec: Math.max(1, Number(seconds)||0), title: state.title })
   }
-  
   const finalizeAuction = async () => {
-    setPaused(false)
-    setInDelay(false)
-    setDelayEndsAt(0)
+    setPaused(false); setInDelay(false); setDelayEndsAt(0)
     await postJSON(`${WS}/${room}/auction/start`, { durationSec: 1, title: state.title })
   }
-  
   const addTime = async (plus) => {
-    if (inDelay) return // No permitir añadir tiempo durante el delay
-    const remainS = Math.max(0, Math.floor(remain/1000))
-    const next = Math.max(1, remainS + plus)
+    if (inDelay) return
+    const next = Math.max(1, Math.floor(remain/1000) + plus)
     await postJSON(`${WS}/${room}/auction/start`, { durationSec: next, title: state.title })
   }
 
-  const getBorderColor = (index) => {
-    if (index === 0) return '#FFD700'
-    if (index === 1) return '#C0C0C0'
-    if (index === 2) return '#CD7F32'
-    return '#0ff'
-  }
+  const getBorderColor = (i) => ['#FFD700','#C0C0C0','#CD7F32','#0ff'][i] || '#0ff'
 
   return (
     <>
-      {/* Botón Engranaje */}
-      <button className="gear-floating" title="Abrir panel de control" onClick={()=>setDashboard(true)}>⚙️</button>
+      <button className="gear-floating" onClick={()=>setDashboard(true)}>⚙️</button>
 
-      {/* Pantalla de GANADOR */}
       {showWinner && currentWinner && (
         <div className="winner-screen">
           <div className="winner-card">
@@ -549,27 +486,23 @@ function AuctionOverlay() {
             <div className="winner-trophy">🏆</div>
             <div className="winner-title">¡GANADOR!</div>
             <div className="winner-name">{currentWinner.user}</div>
-            <div className="winner-amount">
-              <span className="diamond-icon">💎</span>
-              {currentWinner.total} diamantes
-            </div>
+            <div className="winner-amount"><span className="diamond-icon">💎</span>{currentWinner.total} diamantes</div>
             <div className="winner-congrats">🎉 ¡Felicidades! 🎉</div>
           </div>
         </div>
       )}
 
-      {/* Panel compacto en vivo */}
       {!showWinner && (
         <div className="panel">
           <div className="panel-container">
             <div className="timer-box">
-              {inDelay && <div className="delay-label">⏳ TIEMPO DE DELAY</div>}
+              {inDelay && <div className="delay-label">⏳ DELAY</div>}
               <div className="timer">{mm}:{ss}</div>
             </div>
             <div className="board">
               {state.top.slice(0, topN).map((d, i) => (
                 <div className="row" key={d.user + i} style={{borderColor: getBorderColor(i)}}>
-                  <div className={`badge ${i===1 ? 'silver' : i===2 ? 'bronze' : ''}`}>{i+1}</div>
+                  <div className={`badge ${i===1?'silver':i===2?'bronze':''}`}>{i+1}</div>
                   <img className="avatar" src={d.avatar || ''} alt="" />
                   <div className="name" title={d.user}>{d.user}</div>
                   <div className="coin">💎 {d.total}</div>
@@ -580,21 +513,16 @@ function AuctionOverlay() {
         </div>
       )}
 
-      {/* Dashboard estilo imagen */}
       {dashboard && (
         <div className="dash-wrap" onClick={()=>setDashboard(false)}>
           <div className="dash-card" onClick={e=>e.stopPropagation()}>
-            <div className="dash-tabs">
-              <div className="tab active">🎮 Control Principal</div>
-              <div className="tab muted">⚙️ Configurar Estilos</div>
-            </div>
-
+            <div className="dash-tabs"><div className="tab active">🎮 Control</div></div>
             <div className="dash-grid">
               <div className="dash-col">
                 <div className="box box-blue">
                   <div className="box-header">🏆 GANADORES</div>
                   <div className="box-body list">
-                    {winners.length === 0 && <div className="empty">Aún no hay ganadores</div>}
+                    {winners.length === 0 && <div className="empty">Sin ganadores</div>}
                     {winners.map((w, idx)=>(
                       <div className="winner-row" key={idx}>
                         <div className="w-name">{w.name}</div>
@@ -602,10 +530,9 @@ function AuctionOverlay() {
                       </div>
                     ))}
                   </div>
-                  <div className="box-footer">Total Ganadores: {winners.length}</div>
+                  <div className="box-footer">Total: {winners.length}</div>
                 </div>
               </div>
-
               <div className="dash-col">
                 <div className="box box-green">
                   <div className="box-header">👥 PARTICIPANTES</div>
@@ -618,31 +545,18 @@ function AuctionOverlay() {
                       </div>
                     ))}
                   </div>
-                  <div className="box-footer">
-                    Total Participantes: {totalParticipants} &nbsp;|&nbsp; Total Diamantes: {state.donationsTotal || 0}
-                  </div>
+                  <div className="box-footer">Total: {totalParticipants} | Diamantes: {state.donationsTotal || 0}</div>
                 </div>
               </div>
-
               <div className="dash-col">
                 <div className="box box-purple">
                   <div className="box-header">🎮 CONTROLES</div>
                   <div className="controls">
                     <div className="fields-3">
-                      <div>
-                        <label>Tiempo inicial (s):</label>
-                        <input className="input" type="number" value={tInit} onChange={e=>setTInit(Number(e.target.value)||0)} />
-                      </div>
-                      <div>
-                        <label>Delay (s):</label>
-                        <input className="input" type="number" value={delayS} onChange={e=>setDelayS(Number(e.target.value)||0)} />
-                      </div>
-                      <div>
-                        <label>Mínimo de entrada:</label>
-                        <input className="input" type="number" value={minEntry} onChange={e=>setMinEntry(Number(e.target.value)||0)} />
-                      </div>
+                      <div><label>Tiempo (s):</label><input className="input" type="number" value={tInit} onChange={e=>setTInit(Number(e.target.value)||0)} /></div>
+                      <div><label>Delay (s):</label><input className="input" type="number" value={delayS} onChange={e=>setDelayS(Number(e.target.value)||0)} /></div>
+                      <div><label>Mínimo:</label><input className="input" type="number" value={minEntry} onChange={e=>setMinEntry(Number(e.target.value)||0)} /></div>
                     </div>
-
                     <div className="btn-row">
                       <button className="btn btn-green" onClick={()=>startAuction(tInit)}>▶️ Iniciar</button>
                       <button className="btn btn-orange" onClick={()=>setPaused(p=>!p)}>{paused ? '⏯ Reanudar' : '⏸ Pausar'}</button>
@@ -651,7 +565,6 @@ function AuctionOverlay() {
                       <button className="btn btn-red" onClick={finalizeAuction}>🏁 Finalizar</button>
                       <button className="btn btn-gray" onClick={()=>startAuction(tInit)}>🔁 Restart</button>
                     </div>
-
                     <div className="fields-1">
                       <label>Modificar tiempo (s):</label>
                       <input className="input" type="number" value={editDelta} onChange={e=>setEditDelta(Number(e.target.value)||0)} />
@@ -661,8 +574,6 @@ function AuctionOverlay() {
                       </div>
                     </div>
                   </div>
-
-                  <div className="progress-strip"></div>
                 </div>
               </div>
             </div>
@@ -678,19 +589,17 @@ function RoomWizard() {
   const q = new URLSearchParams(location.search)
   const [room, setRoom] = useState(randomRoom())
   const [top, setTop] = useState(3)
-  const [user, setUser] = useState('') // se usa tanto para autouser (overlay) como para verificación (?user)
-  const [ws] = useState(q.get('ws') || import.meta.env.VITE_WS_URL || 'https://tiklive-63mk.onrender.com')
+  const [user, setUser] = useState('')
+  const [ws] = useState(q.get('ws') || import.meta.env.VITE_WS_URL || DEFAULT_WS)
 
   const makeUrl = () => {
     const p = new URLSearchParams()
     p.set('ws', sanitizeBaseUrl(ws))
     p.set('room', room.trim())
     p.set('top', String(top))
-    const key = localStorage.getItem('LIC_KEY') // por compatibilidad, si existiera, no afecta overlay
-    if (key) p.set('key', key)
     if (user.trim()) {
-      p.set('autouser', user.replace(/^@+/, '').trim()) // para overlay (opcional)
-      p.set('user', user.replace(/^@+/, '').trim())     // para verificación por usuario
+      p.set('autouser', user.replace(/^@+/, '').trim())
+      p.set('user', user.replace(/^@+/, '').trim())
     }
     return `${location.origin}/?${p.toString()}`
   }
@@ -698,12 +607,11 @@ function RoomWizard() {
   return (
     <div className="wizard">
       <div className="w-card">
-        <h2>Crear mi sala de subasta</h2>
-
+        <h2>Crear sala de subasta</h2>
         <div className="w-field">
-          <label>Nombre de sala (room)</label>
+          <label>Nombre de sala</label>
           <div className="w-row">
-            <input value={room} onChange={e=>setRoom(e.target.value)} placeholder="miSala123" />
+            <input value={room} onChange={e=>setRoom(e.target.value)} placeholder="miSala123 />
             <button className="w-btn" onClick={()=>setRoom(randomRoom())}>Aleatorio</button>
           </div>
         </div>
@@ -731,7 +639,7 @@ function RoomWizard() {
           }}>Copiar link</button>
         </div>
 
-        <div className="w-hint"> agrega una  <b>captura de ventana</b> de TikTok LIVE Studio del overlay.</div>
+        <div className="w-hint">Agrega una captura de ventana de TikTok LIVE Studio del overlay.</div>
         <div className="w-hint" style={{marginTop:8}}>
           Panel Admin: <a href={`/?view=admin&ws=${encodeURIComponent(sanitizeBaseUrl(ws))}`}>abrir aquí</a>
         </div>
