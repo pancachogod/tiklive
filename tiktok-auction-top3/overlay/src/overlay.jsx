@@ -20,7 +20,7 @@ export default function App() {
 /* ============== Licencias (canje simple via backend) ============== */
 function OverlayWithLicense({ children }) {
   const q = new URLSearchParams(location.search)
-  const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || 'http://localhost:3000'
+  const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || 'https://tiklive-63mk.onrender.com'
   const WS = sanitizeBaseUrl(RAW_WS)
   const [ok, setOk] = useState(false)
   const [busy, setBusy] = useState(true)
@@ -84,7 +84,7 @@ function OverlayWithLicense({ children }) {
 /* ======================= ADMIN PANEL ======================= */
 function AdminPanel() {
   const q = new URLSearchParams(location.search)
-  const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || 'http://localhost:3000'
+  const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || 'https://tiklive-63mk.onrender.com'
   const WS = sanitizeBaseUrl(RAW_WS)
 
   const [pin, setPin] = useState('')
@@ -95,7 +95,7 @@ function AdminPanel() {
   const [result, setResult] = useState(null)
   const [msg, setMsg] = useState('')
 
-  const ADMIN_PIN = '1234' // Cambia este PIN
+  const ADMIN_PIN = '0422' // Cambia este PIN
 
   const checkPin = (e) => {
     e?.preventDefault?.()
@@ -194,7 +194,7 @@ function AdminPanel() {
 function AuctionOverlay() {
   const q = useMemo(() => new URLSearchParams(location.search), [])
   const room = (q.get('room') || 'demo').trim()
-  const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || 'http://localhost:3000'
+  const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || 'https://tiklive-63mk.onrender.com'
   const WS = sanitizeBaseUrl(RAW_WS)
   const initialTitle = q.get('title') || 'Subasta'
   const autoUser = (q.get('autouser') || '').replace(/^@+/, '').trim()
@@ -465,7 +465,7 @@ function RoomWizard() {
   const [room, setRoom] = useState(randomRoom())
   const [top, setTop] = useState(3)
   const [user, setUser] = useState('')
-  const [ws] = useState(q.get('ws') || import.meta.env.VITE_WS_URL || 'http://localhost:3000')
+  const [ws] = useState(q.get('ws') || import.meta.env.VITE_WS_URL || 'https://tiklive-63mk.onrender.com')
 
   const makeUrl = () => {
     const p = new URLSearchParams()
