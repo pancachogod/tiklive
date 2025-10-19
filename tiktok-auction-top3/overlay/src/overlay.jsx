@@ -4,7 +4,9 @@ import './style.css'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-export default defineConfig({
+// ⬇️ antes: export default defineConfig(...)
+// ahora: export nombrado para evitar múltiples "default"
+export const overlayViteConfig = defineConfig({
   base: './',
   plugins: [react()],
   build: {
@@ -13,7 +15,7 @@ export default defineConfig({
   }
 })
 
-const DEFAULT_WS = 'https://tiklive-63mk.onrender.com'
+const DEFAULT_WS = 'tiklive-production.up.railway.app'
 
 /* =================== App (router mínimo por query) =================== */
 export default function App() {
