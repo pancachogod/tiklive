@@ -412,6 +412,315 @@ function AuctionOverlay() {
   }, [WS, room])
 
   useEffect(() => {
+    // Actualizar inmediatamente
+    setNow(Date.now())
+    
+    // Timer principal que se ejecuta incluso cuando la pestaña está minimizada
+    const id = setInterval(() => setNow(Date.now()), 150)
+    
+    // Forzar actualización cuando la pestaña vuelve a estar visible
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        setNow(Date.now())
+      }
+    }
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    
+    return () => {
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [])
+
+  useEffect(() => {
+    (async () => {
+      if (!autoUser) return
+      try {
+        await postJSON(`${WS}/${room}/user`, { user: autoUser })
+      } catch {}
+    })()
+  }, [autoUser, WS, room])
+
+  const remain = Math.max(0, (state.endsAt || 0) - now)
+  const delayRemain = Math.max(0, delayEndsAt - now)
+  const mm = String(Math.floor((paused ? 0 : (inDelay ? delayRemain : remain)) / 1000 / 60)).padStart(2, '0')
+  const ss = String(Math.floor((paused ? 0 : (inDelay ? delayRemain : remain)) / 1000) % 60).padStart(2, '0')
+
+  useEffect(() => {
+    // Cuando termina el tiempo principal, iniciar delay (DONACIONES SIGUEN CONTANDO)
+    if (!paused && !inDelay && remain === 0 && (state.endsAt || 0) > 0 && state.endsAt !== lastEndsAtRef.current) {
+      lastEndsAtRef.current = state.endsAt
+      const win = state.top?.[0]
+      if (win) {
+        setCurrentWinner(win)
+        setWinners(w => [{ name: win.user, total: win.total }, ...w])
+      }
+      
+      console.log(`⏳ Iniciando DELAY de ${delayS}s - Las donaciones siguen contando`)
+      setInDelay(true)
+      setDelayEndsAt(Date.now() + (delayS * 1000))
+      
+      // CRÍTICO: Extender el tiempo de subasta en el backend para que siga contando donaciones
+      postJSON(`${WS}/${room}/auction/start`, { 
+        durationSec: delayS, 
+        title: state.title 
+      }).then(() => {
+        console.log('✅ Subasta extendida durante el delay - donaciones activas')
+      }).catch(err => {
+        console.error('❌ Error extendiendo subasta:', err)
+      })
+    }
+    
+    // Cuando termina el delay, mostrar ganador final
+    if (inDelay && delayRemain === 0 && delayEndsAt > 0) {
+      const finalWinner = state.top?.[0]
+      console.log('🏆 Delay finalizado. Ganador final:', finalWinner)
+      
+      if (finalWinner) {
+        setCurrentWinner(finalWinner)
+        setWinners(w => {
+          const newWinners = [...w]
+          if (newWinners.length > 0) newWinners[0] = { name: finalWinner.user, total: finalWinner.total }
+          return newWinners
+        })
+      }
+      
+      setInDelay(false)
+      setDelayEndsAt(0)
+      setShowWinner(true)
+      
+      setTimeout(() => { setShowWinner(false); setCurrentWinner(null) }, 5000)
+    }
+    
+    setTotalParticipants(state.top?.length || 0)
+  }, [paused, remain, state.endsAt, state.top, inDelay, delayRemain, delayEndsAt, delayS, WS, room, state.title])
+
+  const startAuction = async (seconds) => {
+    setPaused(false); setInDelay(false); setDelayEndsAt(0)
+    await postJSON(`${WS}/${room}/auction/start`, { durationSec: Math.max(1, Number(seconds)||0), title: state.title })
+  }
+  const finalizeAuction = async () => {
+    setPaused(false); setInDelay(false); setDelayEndsAt(0)
+    await postJSON(`${WS}/${room}/auction/start`, { durationSec: 1, title: state.title })
+  }
+  const addTime = async (plus) => {
+    if (inDelay) return
+    const next = Math.max(1, Math.floor(remain/1000) + plus)
+    await postJSON(`${WS}/${room}/auction/start`, { durationSec: next, title: state.title })
+  }
+
+  const getBorderColor = (i) => ['#FFD700','#C0C0C0','#CD7F32','#0ff'][i] || '#0ff'
+
+  return (
+    <>
+      <button className="gear-floating" onClick={()=>setDashboard(true)}>⚙️</button>
+
+      {showWinner && currentWinner && (
+        <div className="winner-screen">
+          <div className="winner-card">
+            <div className="winner-badge">FINALIZADO</div>
+            <div className="winner-trophy">🏆</div>
+            <div className="winner-title">¡GANADOR!</div>
+            <div className="winner-name">{currentWinner.user}</div>
+            <div className="winner-amount"><span className="diamond-icon">💎</span>{currentWinner.total} diamantes</div>
+            <div className="winner-congrats">🎉 ¡Felicidades! 🎉</div>
+          </div>
+        </div>
+      )}
+
+      {!showWinner && (
+        <div className="panel">
+          <div className="panel-container">
+            <div className="timer-box">
+              {inDelay && <div className="delay-label">⏳ DELAY</div>}
+              <div className="timer">{mm}:{ss}</div>
+            </div>
+            <div className="board">
+              {state.top.slice(0, topN).map((d, i) => (
+                <div className="row" key={d.user + i} style={{borderColor: getBorderColor(i)}}>
+                  <div className={`badge ${i===1?'silver':i===2?'bronze':''}`}>{i+1}</div>
+                  <img className="avatar" src={d.avatar || ''} alt="" />
+                  <div className="name" title={d.user}>{d.user}</div>
+                  <div className="coin">💎 {d.total}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {dashboard && (
+        <div className="dash-wrap" onClick={()=>setDashboard(false)}>
+          <div className="dash-card" onClick={e=>e.stopPropagation()}>
+            <div className="dash-tabs"><div className="tab active">🎮 Control</div></div>
+            <div className="dash-grid">
+              <div className="dash-col">
+                <div className="box box-blue">
+                  <div className="box-header">🏆 GANADORES</div>
+                  <div className="box-body list">
+                    {winners.length === 0 && <div className="empty">Sin ganadores</div>}
+                    {winners.map((w, idx)=>(
+                      <div className="winner-row" key={idx}>
+                        <div className="w-name">{w.name}</div>
+                        <div className="w-total">💰 {w.total}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="box-footer">Total: {winners.length}</div>
+                </div>
+              </div>
+              <div className="dash-col">
+                <div className="box box-green">
+                  <div className="box-header">👥 PARTICIPANTES</div>
+                  <div className="box-body list">
+                    {state.top.length === 0 && <div className="empty">Sin participantes</div>}
+                    {state.top.map((d, i)=>(
+                      <div className="winner-row" key={d.user+i}>
+                        <div className="w-name">{i+1}. {d.user}</div>
+                        <div className="w-total">💎 {d.total}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="box-footer">Total: {totalParticipants} | Diamantes: {state.donationsTotal || 0}</div>
+                </div>
+              </div>
+              <div className="dash-col">
+                <div className="box box-purple">
+                  <div className="box-header">🎮 CONTROLES</div>
+                  <div className="controls">
+                    <div className="fields-3">
+                      <div><label>Tiempo (s):</label><input className="input" type="number" value={tInit} onChange={e=>setTInit(Number(e.target.value)||0)} /></div>
+                      <div><label>Delay (s):</label><input className="input" type="number" value={delayS} onChange={e=>setDelayS(Number(e.target.value)||0)} /></div>
+                      <div><label>Mínimo:</label><input className="input" type="number" value={minEntry} onChange={e=>setMinEntry(Number(e.target.value)||0)} /></div>
+                    </div>
+                    <div className="btn-row">
+                      <button className="btn btn-green" onClick={()=>startAuction(tInit)}>▶️ Iniciar</button>
+                      <button className="btn btn-orange" onClick={()=>setPaused(p=>!p)}>{paused ? '⏯ Reanudar' : '⏸ Pausar'}</button>
+                    </div>
+                    <div className="btn-row">
+                      <button className="btn btn-red" onClick={finalizeAuction}>🏁 Finalizar</button>
+                      <button className="btn btn-gray" onClick={()=>startAuction(tInit)}>🔁 Restart</button>
+                    </div>
+                    <div className="fields-1">
+                      <label>Modificar tiempo (s):</label>
+                      <input className="input" type="number" value={editDelta} onChange={e=>setEditDelta(Number(e.target.value)||0)} />
+                      <div className="btn-row">
+                        <button className="btn btn-green" onClick={()=>addTime(+Math.abs(editDelta))}>+</button>
+                        <button className="btn btn-red" onClick={()=>addTime(-Math.abs(editDelta))}>-</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
+/* ======================= WIZARD ======================= */
+function RoomWizard() {
+  const q = new URLSearchParams(location.search)
+  const [room, setRoom] = useState(randomRoom())
+  const [top, setTop] = useState(3)
+  const [user, setUser] = useState('')
+  const [ws] = useState(q.get('ws') || import.meta.env.VITE_WS_URL || DEFAULT_WS)
+
+  const makeUrl = () => {
+    const p = new URLSearchParams()
+    p.set('ws', sanitizeBaseUrl(ws))
+    p.set('room', room.trim())
+    p.set('top', String(top))
+    if (user.trim()) {
+      p.set('autouser', user.replace(/^@+/, '').trim())
+      p.set('user', user.replace(/^@+/, '').trim())
+    }
+    return `${location.origin}/?${p.toString()}`
+  }
+
+  return (
+    <div className="wizard">
+      <div className="w-card">
+        <h2>Crear sala de subasta</h2>
+        <div className="w-field">
+          <label>Nombre de sala</label>
+          <div className="w-row">
+            <input value={room} onChange={e=>setRoom(e.target.value)} placeholder="miSala123"
+            </div>
+            <div className="w-field">
+              <label>Días de acceso</label>
+              <input type="number" min="1" value={days} onChange={e=>setDays(Number(e.target.value)||1)} />
+            </div>
+            {msg && <div className="w-hint" style={{color:'#ff6'}}>{msg}</div>}
+            <div className="w-actions">
+              <button className="w-primary" onClick={activateUser}>Activar</button>
+              <button className="w-btn" onClick={()=>{setNewUser(''); setDays(30)}}>Limpiar</button>
+            </div>
+          </>
+        )}
+
+        {view==='details' && selectedUser && (
+          <div className="detail-card">
+            <h3>@{selectedUser.tiktokUser}</h3>
+            <div className="w-hint">Estado: {selectedUser.status}</div>
+            <div className="w-hint">Días restantes: {selectedUser.daysRemaining ?? '-'}</div>
+            <div className="w-hint">Expira: {selectedUser.expiresAt ? new Date(selectedUser.expiresAt).toLocaleString() : '-'}</div>
+            <div className="w-row" style={{gap:8, marginTop:12}}>
+              {selectedUser.status==='disabled'
+                ? <button className="w-success" onClick={()=>enableUser(selectedUser.tiktokUser)}>Habilitar</button>
+                : <button className="w-btn" onClick={()=>disableUser(selectedUser.tiktokUser)}>Deshabilitar</button>}
+              <button className="w-danger" onClick={()=>deleteUser(selectedUser.tiktokUser)}>Eliminar</button>
+              <button className="w-btn" onClick={()=>setView('list')}>Volver</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/* ======================= OVERLAY ======================= */
+function AuctionOverlay() {
+  const q = useMemo(() => new URLSearchParams(location.search), [])
+  const room = (q.get('room') || 'demo').trim()
+  const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || DEFAULT_WS
+  const WS = sanitizeBaseUrl(RAW_WS)
+  const initialTitle = q.get('title') || 'Subasta'
+  const autoUser = (q.get('autouser') || '').replace(/^@+/, '').trim()
+  const topN = Number(q.get('top') || 3)
+
+  const [state, setState] = useState({ title: initialTitle, endsAt: 0, top: [], donationsTotal: 0 })
+  const [now, setNow] = useState(Date.now())
+  const [dashboard, setDashboard] = useState(false)
+  const [paused, setPaused] = useState(false)
+  const [inDelay, setInDelay] = useState(false)
+  const [delayEndsAt, setDelayEndsAt] = useState(0)
+  const [tInit, setTInit] = useState(60)
+  const [delayS, setDelayS] = useState(10)
+  const [minEntry, setMinEntry] = useState(20)
+  const [editDelta, setEditDelta] = useState(10)
+  const [winners, setWinners] = useState([])
+  const [totalParticipants, setTotalParticipants] = useState(0)
+  const [showWinner, setShowWinner] = useState(false)
+  const [currentWinner, setCurrentWinner] = useState(null)
+  const socketRef = useRef(null)
+  const lastEndsAtRef = useRef(0)
+
+  useEffect(() => {
+    console.log('🔌 Conectando a:', WS, 'Room:', room)
+    const socket = io(WS, { transports:['websocket', 'polling'], query:{ room } })
+    socketRef.current = socket
+    socket.on('connect', () => console.log('✅ Conectado'))
+    socket.on('disconnect', () => console.log('❌ Desconectado'))
+    socket.on('state', st => { console.log('📡 State:', st); setState(prev => ({ ...prev, ...st })) })
+    socket.on('donation', d => { console.log('💎 Donación:', d); setState(prev => ({ ...prev, top: d.top, donationsTotal: d.donationsTotal ?? prev.donationsTotal })) })
+    return () => socket.close()
+  }, [WS, room])
+
+  useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 150)
     return () => clearInterval(id)
   }, [])
