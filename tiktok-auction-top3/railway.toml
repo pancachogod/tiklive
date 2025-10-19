@@ -1,9 +1,7 @@
 [services.backend]
-root = "backend"
-build = "npm install"
-start = "npm start"
+root = "."
+dockerfilePath = "Dockerfile.backend"
 
 [services.overlay]
-root = "overlay"
-build = "npm run build"
-start = "npm run start"
+root = "."
+dockerfilePath = "Dockerfile.overlay"
