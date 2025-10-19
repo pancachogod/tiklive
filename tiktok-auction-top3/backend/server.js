@@ -9,10 +9,10 @@ import pg from 'pg';
 const { Pool } = pg;
 
 /* ================== CONFIG BÁSICA ================== */
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 
 // ✅ ADMIN_KEY por ENV (no hardcodeada)
-const ADMIN_KEY = process.env.ADMIN_KEY || 'cambia-esta-clave';
+const ADMIN_KEY = process.env.ADMIN_KEY || 'pancacho123';
 
 // ✅ Orígenes permitidos (sin “/” final) + comodines + extras por ENV
 function parseOriginsFromEnv() {
@@ -21,7 +21,7 @@ function parseOriginsFromEnv() {
 }
 const ORIGINS = [
   'https://tiklive-git-main-pancachogods-projects.vercel.app',
-  'https://tiklive-63mk.onrender.com',
+  'tiklive-production.up.railway.app',
   /\.vercel\.app$/,
   /\.railway\.app$/,
   ...parseOriginsFromEnv()
