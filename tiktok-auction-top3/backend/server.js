@@ -11,21 +11,20 @@ const { Pool } = pg;
 /* ================== CONFIG BÁSICA ================== */
 const PORT = process.env.PORT || 8080;
 
-// ✅ ADMIN_KEY solo por ENV (no hardcodear en producción)
+// Clave admin por ENV (no hardcodear)
 const ADMIN_KEY = process.env.ADMIN_KEY || 'pancacho123';
 
-/* ================== CORS ================== */
-// ✅ Orígenes permitidos (sin “/” final) + comodines + extras por ENV
+// Orígenes permitidos (sin “/” final). Puedes ampliar por ENV.
 function parseOriginsFromEnv() {
   const raw = process.env.ALLOWED_ORIGINS || '';
   return raw.split(',').map(s => s.trim()).filter(Boolean);
 }
 const ORIGINS = [
-  'keen-optimism-production.up.railway.app',
-  'https://tiklive-production.up.railway.app',   // ← agregado https://
+  'https://tiklive-blue.vercel.app',
+  'https://tiklive-production.up.railway.app',
   /\.vercel\.app$/,
   /\.railway\.app$/,
-  ...parseOriginsFromEnv()
+  ...parseOriginsFromEnv(),
 ];
 
 /* ================== APP / IO ================== */
@@ -43,7 +42,7 @@ const io = new Server(server, {
   transports: ['websocket', 'polling'],
 });
 
-/* ================== POSTGRESQL ================== */
+/* ================== POSTGRESQL (Railway DB) ================== */
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false, require: true },
@@ -290,32 +289,24 @@ app.post('/user/verify', async (req, res) => {
   }
 });
 
-/* ================== ADMIN ================== */
 function requireAdmin(req, res, next) {
   const headerKey = String(req.headers['x-admin-key'] || '').trim();
   if (headerKey !== ADMIN_KEY) return res.status(401).json({ ok: false, error: 'unauthorized' });
   next();
 }
 
-// ← NUEVO: endpoint requerido por tu panel
+/* === NUEVO: /admin/stats para el Panel === */
 app.get('/admin/stats', requireAdmin, async (_req, res) => {
   try {
-    const total = await pool.query('SELECT COUNT(*) FROM users');
-    const active = await pool.query("SELECT COUNT(*) FROM users WHERE status = 'active'");
-    const expired = await pool.query("SELECT COUNT(*) FROM users WHERE status = 'expired'");
-    const disabled = await pool.query("SELECT COUNT(*) FROM users WHERE status = 'disabled'");
-    res.json({
-      ok: true,
-      stats: {
-        total: Number(total.rows[0].count),
-        active: Number(active.rows[0].count),
-        expired: Number(expired.rows[0].count),
-        disabled: Number(disabled.rows[0].count),
-      }
-    });
-  } catch (err) {
-    console.error('Error obteniendo stats:', err);
-    res.status(500).json({ ok:false, error:'database-error' });
+    const q = async (status) =>
+      (await pool.query('SELECT COUNT(*)::int AS c FROM users WHERE status = $1', [status])).rows[0].c;
+    const [active, expired, disabled] = await Promise.all([
+      q('active'), q('expired'), q('disabled')
+    ]);
+    res.json({ ok: true, stats: { active, expired, disabled } });
+  } catch (e) {
+    console.error('Error stats:', e);
+    res.status(500).json({ ok: false, error: 'database-error' });
   }
 });
 
@@ -332,10 +323,14 @@ app.post('/admin/user/activate', requireAdmin, async (req, res) => {
       const baseTime = user.status === 'expired' ? t : Math.max(user.expires_at, t);
       const newExpiresAt = baseTime + days * 86400000;
       const newDaysActive = Math.ceil((newExpiresAt - t) / 86400000);
-      await pool.query('UPDATE users SET expires_at = $1, days_active = $2, status = $3 WHERE tiktok_user = $4', [newExpiresAt, newDaysActive, 'active', tiktokUser]);
+      await pool.query('UPDATE users SET expires_at = $1, days_active = $2, status = $3 WHERE tiktok_user = $4',
+        [newExpiresAt, newDaysActive, 'active', tiktokUser]);
     } else {
       const expiresAt = t + days * 86400000;
-      await pool.query('INSERT INTO users (tiktok_user, days_active, expires_at, created_at, status, notes, usage_count) VALUES ($1,$2,$3,$4,$5,$6,$7)', [tiktokUser, days, expiresAt, t, 'active', '', 0]);
+      await pool.query(
+        'INSERT INTO users (tiktok_user, days_active, expires_at, created_at, status, notes, usage_count) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+        [tiktokUser, days, expiresAt, t, 'active', '', 0]
+      );
     }
     const updated = await pool.query('SELECT * FROM users WHERE tiktok_user = $1', [tiktokUser]);
     const u = updated.rows[0];
@@ -447,10 +442,11 @@ io.on('connection', (socket) => {
   socket.join(r.id);
   socket.emit('state', r.auction);
 });
+
 app.get('/health', (_req, res) => res.send('ok'));
 
 server.listen(PORT, () => {
   console.log(`🚀 Backend on :${PORT}`);
-  console.log(`🔑 Admin key: ${ADMIN_KEY ? '(set)' : '(not set, default)'}`); // ← no imprimir la clave
+  console.log(`🔑 Admin key: ${ADMIN_KEY ? '(set)' : '(not set)'}`);
   console.log(`💾 Database: ${process.env.DATABASE_URL ? 'Configured' : 'Not configured'}`);
 });
