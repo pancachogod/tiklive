@@ -390,10 +390,8 @@ function AuctionOverlay() {
   const socketRef = useRef(null)
   const lastEndsAtRef = useRef(0)
 
-  // 🔧 NUEVO: clave por sala para persistir ganadores
   const winnersKey = useMemo(() => `Winners:${room}`, [room])
 
-  // 🔧 NUEVO: cargar ganadores guardados al montar / cambiar sala
   useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(winnersKey) || '[]')
@@ -401,7 +399,6 @@ function AuctionOverlay() {
     } catch {}
   }, [winnersKey])
 
-  // 🔧 NUEVO: persistir ganadores en localStorage
   useEffect(() => {
     try {
       localStorage.setItem(winnersKey, JSON.stringify(winners))
@@ -433,29 +430,12 @@ function AuctionOverlay() {
   }, [WS, room, inDelay])
 
   useEffect(() => {
-    // Actualizar inmediatamente
     setNow(Date.now())
-    
-    // Timer que funciona incluso con pestaña minimizada
-    const id = setInterval(() => {
-      setNow(Date.now())
-    }, 100) // Más frecuente para mayor precisión
-    
-    // Forzar actualización al volver a la pestaña
-    const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        setNow(Date.now())
-      }
-    }
-    
-    // Forzar actualización al enfocar la ventana
-    const handleFocus = () => {
-      setNow(Date.now())
-    }
-    
+    const id = setInterval(() => setNow(Date.now()), 100)
+    const handleVisibilityChange = () => { if (!document.hidden) setNow(Date.now()) }
+    const handleFocus = () => setNow(Date.now())
     document.addEventListener('visibilitychange', handleVisibilityChange)
     window.addEventListener('focus', handleFocus)
-    
     return () => {
       clearInterval(id)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
@@ -466,9 +446,7 @@ function AuctionOverlay() {
   useEffect(() => {
     (async () => {
       if (!autoUser) return
-      try {
-        await postJSON(`${WS}/${room}/user`, { user: autoUser })
-      } catch {}
+      try { await postJSON(`${WS}/${room}/user`, { user: autoUser }) } catch {}
     })()
   }, [autoUser, WS, room])
 
@@ -478,7 +456,6 @@ function AuctionOverlay() {
   const ss = String(Math.floor((paused ? 0 : (inDelay ? delayRemain : remain)) / 1000) % 60).padStart(2, '0')
 
   useEffect(() => {
-    // Cuando termina el tiempo principal, EXTENDER la subasta por el tiempo de delay
     if (!paused && !inDelay && remain === 0 && (state.endsAt || 0) > 0 && state.endsAt !== lastEndsAtRef.current) {
       lastEndsAtRef.current = state.endsAt
       const win = state.top?.[0]
@@ -486,60 +463,38 @@ function AuctionOverlay() {
         setCurrentWinner(win)
         setWinners(w => [{ name: win.user, total: win.total }, ...w])
       }
-      
-      console.log(`⏳ INICIANDO DELAY de ${delayS}s - Las donaciones siguen contando`)
       setInDelay(true)
       setDelayEndsAt(Date.now() + (delayS * 1000))
-      
-      // CRÍTICO: Extender la subasta en el backend para que siga recibiendo donaciones
-      postJSON(`${WS}/${room}/auction/start`, { 
-        durationSec: delayS, 
-        title: state.title 
-      }).then(() => {
-        console.log('✅ Subasta extendida - Las donaciones SIGUEN contando')
-      }).catch(err => {
-        console.error('❌ Error extendiendo subasta:', err)
-      })
+      postJSON(`${WS}/${room}/auction/start`, { durationSec: delayS, title: state.title }).catch(()=>{})
     }
-    
-    // Cuando termina el delay, mostrar ganador FINAL
     if (inDelay && delayRemain === 0 && delayEndsAt > 0) {
       const finalWinner = state.top?.[0]
-      console.log('🏆 Delay terminado. Ganador FINAL con donaciones del delay:', finalWinner)
-      
       if (finalWinner) {
         setCurrentWinner(finalWinner)
-        // Actualizar el ganador con el total FINAL (incluye donaciones del delay)
         setWinners(w => {
-          const newWinners = [...w]
-          if (newWinners.length > 0) {
-            newWinners[0] = { name: finalWinner.user, total: finalWinner.total }
-          }
-          return newWinners
+          const n = [...w]
+          if (n.length > 0) n[0] = { name: finalWinner.user, total: finalWinner.total }
+          return n
         })
       }
-      
       setInDelay(false)
       setDelayEndsAt(0)
       setShowWinner(true)
       setTimeout(() => { setShowWinner(false); setCurrentWinner(null) }, 5000)
     }
-    
     setTotalParticipants(state.top?.length || 0)
   }, [paused, remain, state.endsAt, state.top, inDelay, delayRemain, delayEndsAt, delayS, WS, room, state.title])
 
-  // 🔧 NUEVO: función para limpiar participantes/board en cliente
   const clearParticipantsClient = React.useCallback(() => {
-    setState(prev => ({ ...prev, top: [], donationsTotal: 0 })) // limpia ranking y diamantes acumulados en vista
+    setState(prev => ({ ...prev, top: [], donationsTotal: 0 }))
     setTotalParticipants(0)
   }, [])
 
   const startAuction = async (seconds) => {
-    // 🔧 NUEVO: al reiniciar, ocultar pantalla de ganador y limpiar board local
     setShowWinner(false)
     setCurrentWinner(null)
     setPaused(false); setInDelay(false); setDelayEndsAt(0)
-    clearParticipantsClient() // ← limpia participantes para que salga en blanco
+    clearParticipantsClient()
     await postJSON(`${WS}/${room}/auction/start`, { durationSec: Math.max(1, Number(seconds)||0), title: state.title })
   }
 
@@ -577,17 +532,9 @@ function AuctionOverlay() {
         <div className="panel">
           <div className="panel-container">
             <div className="timer-box">
-              {inDelay && (
-                <div className="delay-label">
-                  ⏳ TIEMPO DE DELAY - Las donaciones siguen contando
-                </div>
-              )}
+              {inDelay && <div className="delay-label">⏳ TIEMPO DE DELAY - Las donaciones siguen contando</div>}
               <div className="timer">{mm}:{ss}</div>
-              {inDelay && (
-                <div className="delay-info">
-                  Ganador provisional: {currentWinner?.user || '—'} con {currentWinner?.total || 0} 💎
-                </div>
-              )}
+              {inDelay && <div className="delay-info">Ganador provisional: {currentWinner?.user || '—'} con {currentWinner?.total || 0} 💎</div>}
             </div>
             <div className="board">
               {state.top.slice(0, topN).map((d, i) => (
@@ -622,7 +569,6 @@ function AuctionOverlay() {
                   </div>
                   <div className="box-footer">
                     Total: {winners.length}
-                    {/* 🔧 NUEVO: botón para limpiar ganadores guardados */}
                     <button 
                       className="btn btn-gray" 
                       style={{marginLeft:8}}
@@ -666,7 +612,6 @@ function AuctionOverlay() {
                     </div>
                     <div className="btn-row">
                       <button className="btn btn-red" onClick={finalizeAuction}>🏁 Finalizar</button>
-                      {/* 🔧 NUEVO: Restart ya limpia participantes */}
                       <button className="btn btn-gray" onClick={()=>startAuction(tInit)}>🔁 Restart</button>
                     </div>
                     <div className="fields-1">
@@ -677,7 +622,6 @@ function AuctionOverlay() {
                         <button className="btn btn-red" onClick={()=>addTime(-Math.abs(editDelta))}>-</button>
                       </div>
                     </div>
-                    {/* 🔧 NUEVO: botón rápido solo para limpiar participantes sin reiniciar */}
                     <div className="btn-row" style={{marginTop:8}}>
                       <button className="btn btn-gray" onClick={clearParticipantsClient}>🧽 Limpiar participantes (vista)</button>
                     </div>
@@ -753,7 +697,12 @@ function RoomWizard() {
 }
 
 /* ======================= Helpers ======================= */
-function sanitizeBaseUrl(u){ return String(u||'').trim().replace(/\/+$/,'') }
+// Asegura https:// si el usuario pasa solo el dominio
+function sanitizeBaseUrl(u){
+  let s = String(u||'').trim().replace(/\/+$/,'')
+  if (!/^https?:\/\//i.test(s)) s = 'https://' + s
+  return s
+}
 async function postJSON(url, body){
   const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body ?? {}) })
   const text = await r.text(); return { ok: r.ok, status: r.status, data: text ? JSON.parse(text) : {} }
