@@ -1,13 +1,37 @@
 FROM node:18-alpine
+
 WORKDIR /app
 
-# Copia el package.json del backend e instala deps
+# Copiar package.json del backend
 COPY backend/package*.json ./
+
+# Instalar dependencias
 RUN npm ci --omit=dev
 
-# Copia el código del backend
-COPY backend ./
+# Copiar todo el backend
+COPY backend/ ./
 
-ENV NODE_ENV=production
+# Puerto
 EXPOSE 3000
+
+# Iniciar
 CMD ["node", "server.js"]
+```
+
+5. Guarda el archivo (`Ctrl+S` o `Cmd+S`)
+
+---
+
+## 📝 **PASO 3: Crear .dockerignore EN LA RAÍZ**
+
+1. Crear otro archivo: `.dockerignore`
+2. Pega esto:
+```
+node_modules
+npm-debug.log
+.env
+.git
+overlay
+frontend
+*.md
+.DS_Store
