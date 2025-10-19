@@ -21,7 +21,7 @@ function parseOriginsFromEnv() {
   return raw.split(',').map(s => s.trim()).filter(Boolean);
 }
 const ORIGINS = [
-  'https://tiklive-git-main-pancachogods-projects.vercel.app',
+  'keen-optimism-production.up.railway.app',
   'https://tiklive-production.up.railway.app',   // ← agregado https://
   /\.vercel\.app$/,
   /\.railway\.app$/,
