@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react' 
 import { io } from 'socket.io-client'
 import './style.css'
 
@@ -381,12 +381,32 @@ function AuctionOverlay() {
   const [delayS, setDelayS] = useState(10)
   const [minEntry, setMinEntry] = useState(20)
   const [editDelta, setEditDelta] = useState(10)
+
   const [winners, setWinners] = useState([])
   const [totalParticipants, setTotalParticipants] = useState(0)
   const [showWinner, setShowWinner] = useState(false)
   const [currentWinner, setCurrentWinner] = useState(null)
+
   const socketRef = useRef(null)
   const lastEndsAtRef = useRef(0)
+
+  // 🔧 NUEVO: clave por sala para persistir ganadores
+  const winnersKey = useMemo(() => `Winners:${room}`, [room])
+
+  // 🔧 NUEVO: cargar ganadores guardados al montar / cambiar sala
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(winnersKey) || '[]')
+      if (Array.isArray(saved)) setWinners(saved)
+    } catch {}
+  }, [winnersKey])
+
+  // 🔧 NUEVO: persistir ganadores en localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(winnersKey, JSON.stringify(winners))
+    } catch {}
+  }, [winners, winnersKey])
 
   useEffect(() => {
     const socket = io(WS, { transports:['websocket', 'polling'], query:{ room } })
@@ -467,7 +487,7 @@ function AuctionOverlay() {
         setWinners(w => [{ name: win.user, total: win.total }, ...w])
       }
       
-      console.log(`⏳ INICIANDO DELAY de ${delayS}s - Donaciones siguen contando`)
+      console.log(`⏳ INICIANDO DELAY de ${delayS}s - Las donaciones siguen contando`)
       setInDelay(true)
       setDelayEndsAt(Date.now() + (delayS * 1000))
       
@@ -508,14 +528,26 @@ function AuctionOverlay() {
     setTotalParticipants(state.top?.length || 0)
   }, [paused, remain, state.endsAt, state.top, inDelay, delayRemain, delayEndsAt, delayS, WS, room, state.title])
 
+  // 🔧 NUEVO: función para limpiar participantes/board en cliente
+  const clearParticipantsClient = React.useCallback(() => {
+    setState(prev => ({ ...prev, top: [], donationsTotal: 0 })) // limpia ranking y diamantes acumulados en vista
+    setTotalParticipants(0)
+  }, [])
+
   const startAuction = async (seconds) => {
+    // 🔧 NUEVO: al reiniciar, ocultar pantalla de ganador y limpiar board local
+    setShowWinner(false)
+    setCurrentWinner(null)
     setPaused(false); setInDelay(false); setDelayEndsAt(0)
+    clearParticipantsClient() // ← limpia participantes para que salga en blanco
     await postJSON(`${WS}/${room}/auction/start`, { durationSec: Math.max(1, Number(seconds)||0), title: state.title })
   }
+
   const finalizeAuction = async () => {
     setPaused(false); setInDelay(false); setDelayEndsAt(0)
     await postJSON(`${WS}/${room}/auction/start`, { durationSec: 1, title: state.title })
   }
+
   const addTime = async (plus) => {
     if (inDelay) return
     const next = Math.max(1, Math.floor(remain/1000) + plus)
@@ -578,7 +610,7 @@ function AuctionOverlay() {
             <div className="dash-grid">
               <div className="dash-col">
                 <div className="box box-blue">
-                  <div className="box-header">🏆 GANADORES</div>
+                  <div className="box-header">🏆 GANADORES <span className="text-xs opacity-70"> (guardados por sala)</span></div>
                   <div className="box-body list">
                     {winners.length === 0 && <div className="empty">Sin ganadores</div>}
                     {winners.map((w, idx)=>(
@@ -588,7 +620,20 @@ function AuctionOverlay() {
                       </div>
                     ))}
                   </div>
-                  <div className="box-footer">Total: {winners.length}</div>
+                  <div className="box-footer">
+                    Total: {winners.length}
+                    {/* 🔧 NUEVO: botón para limpiar ganadores guardados */}
+                    <button 
+                      className="btn btn-gray" 
+                      style={{marginLeft:8}}
+                      onClick={()=>{
+                        if (confirm('¿Limpiar la lista de ganadores guardados?')) {
+                          setWinners([])
+                          try { localStorage.removeItem(winnersKey) } catch {}
+                        }
+                      }}
+                    >🧹 Limpiar</button>
+                  </div>
                 </div>
               </div>
               <div className="dash-col">
@@ -621,6 +666,7 @@ function AuctionOverlay() {
                     </div>
                     <div className="btn-row">
                       <button className="btn btn-red" onClick={finalizeAuction}>🏁 Finalizar</button>
+                      {/* 🔧 NUEVO: Restart ya limpia participantes */}
                       <button className="btn btn-gray" onClick={()=>startAuction(tInit)}>🔁 Restart</button>
                     </div>
                     <div className="fields-1">
@@ -630,6 +676,10 @@ function AuctionOverlay() {
                         <button className="btn btn-green" onClick={()=>addTime(+Math.abs(editDelta))}>+</button>
                         <button className="btn btn-red" onClick={()=>addTime(-Math.abs(editDelta))}>-</button>
                       </div>
+                    </div>
+                    {/* 🔧 NUEVO: botón rápido solo para limpiar participantes sin reiniciar */}
+                    <div className="btn-row" style={{marginTop:8}}>
+                      <button className="btn btn-gray" onClick={clearParticipantsClient}>🧽 Limpiar participantes (vista)</button>
                     </div>
                   </div>
                 </div>
