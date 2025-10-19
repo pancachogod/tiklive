@@ -1,16 +1,37 @@
-# Build
-FROM node:18-alpine AS build
-WORKDIR /app
-COPY overlay/package*.json ./
-RUN npm ci
-COPY overlay ./
-RUN npm run build
-
-# Runtime liviano para servir estático
 FROM node:18-alpine
-RUN npm i -g serve
-WORKDIR /srv
-COPY --from=build /app/dist ./dist
-ENV PORT=8080
-EXPOSE 8080
-CMD ["serve","-s","dist","-l","$PORT"]
+
+WORKDIR /app
+
+# Copiar package.json del backend
+COPY backend/package*.json ./
+
+# Instalar dependencias
+RUN npm ci --omit=dev
+
+# Copiar todo el backend
+COPY backend/ ./
+
+# Puerto
+EXPOSE 3000
+
+# Iniciar
+CMD ["node", "server.js"]
+```
+
+5. Guarda el archivo (`Ctrl+S` o `Cmd+S`)
+
+---
+
+## 📝 **PASO 3: Crear .dockerignore EN LA RAÍZ**
+
+1. Crear otro archivo: `.dockerignore`
+2. Pega esto:
+```
+node_modules
+npm-debug.log
+.env
+.git
+overlay
+frontend
+*.md
+.DS_Store
