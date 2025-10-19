@@ -391,14 +391,56 @@ function AuctionOverlay() {
   useEffect(() => {
     const socket = io(WS, { transports:['websocket', 'polling'], query:{ room } })
     socketRef.current = socket
-    socket.on('state', st => setState(prev => ({ ...prev, ...st })))
-    socket.on('donation', d => setState(prev => ({ ...prev, top: d.top, donationsTotal: d.donationsTotal ?? prev.donationsTotal })))
+    
+    socket.on('connect', () => console.log('✅ Socket conectado'))
+    socket.on('disconnect', () => console.log('❌ Socket desconectado'))
+    
+    socket.on('state', st => {
+      console.log('📡 State recibido:', st)
+      setState(prev => ({ ...prev, ...st }))
+    })
+    
+    socket.on('donation', d => {
+      if (inDelay) {
+        console.log('💎 DONACIÓN DURANTE EL DELAY:', d)
+      } else {
+        console.log('💎 Donación:', d)
+      }
+      setState(prev => ({ ...prev, top: d.top, donationsTotal: d.donationsTotal ?? prev.donationsTotal }))
+    })
+    
     return () => socket.close()
-  }, [WS, room])
+  }, [WS, room, inDelay])
 
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 150)
-    return () => clearInterval(id)
+    // Actualizar inmediatamente
+    setNow(Date.now())
+    
+    // Timer que funciona incluso con pestaña minimizada
+    const id = setInterval(() => {
+      setNow(Date.now())
+    }, 100) // Más frecuente para mayor precisión
+    
+    // Forzar actualización al volver a la pestaña
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        setNow(Date.now())
+      }
+    }
+    
+    // Forzar actualización al enfocar la ventana
+    const handleFocus = () => {
+      setNow(Date.now())
+    }
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('focus', handleFocus)
+    
+    return () => {
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('focus', handleFocus)
+    }
   }, [])
 
   useEffect(() => {
@@ -416,6 +458,7 @@ function AuctionOverlay() {
   const ss = String(Math.floor((paused ? 0 : (inDelay ? delayRemain : remain)) / 1000) % 60).padStart(2, '0')
 
   useEffect(() => {
+    // Cuando termina el tiempo principal, EXTENDER la subasta por el tiempo de delay
     if (!paused && !inDelay && remain === 0 && (state.endsAt || 0) > 0 && state.endsAt !== lastEndsAtRef.current) {
       lastEndsAtRef.current = state.endsAt
       const win = state.top?.[0]
@@ -423,20 +466,39 @@ function AuctionOverlay() {
         setCurrentWinner(win)
         setWinners(w => [{ name: win.user, total: win.total }, ...w])
       }
+      
+      console.log(`⏳ INICIANDO DELAY de ${delayS}s - Donaciones siguen contando`)
       setInDelay(true)
       setDelayEndsAt(Date.now() + (delayS * 1000))
+      
+      // CRÍTICO: Extender la subasta en el backend para que siga recibiendo donaciones
+      postJSON(`${WS}/${room}/auction/start`, { 
+        durationSec: delayS, 
+        title: state.title 
+      }).then(() => {
+        console.log('✅ Subasta extendida - Las donaciones SIGUEN contando')
+      }).catch(err => {
+        console.error('❌ Error extendiendo subasta:', err)
+      })
     }
     
+    // Cuando termina el delay, mostrar ganador FINAL
     if (inDelay && delayRemain === 0 && delayEndsAt > 0) {
       const finalWinner = state.top?.[0]
+      console.log('🏆 Delay terminado. Ganador FINAL con donaciones del delay:', finalWinner)
+      
       if (finalWinner) {
         setCurrentWinner(finalWinner)
+        // Actualizar el ganador con el total FINAL (incluye donaciones del delay)
         setWinners(w => {
           const newWinners = [...w]
-          if (newWinners.length > 0) newWinners[0] = { name: finalWinner.user, total: finalWinner.total }
+          if (newWinners.length > 0) {
+            newWinners[0] = { name: finalWinner.user, total: finalWinner.total }
+          }
           return newWinners
         })
       }
+      
       setInDelay(false)
       setDelayEndsAt(0)
       setShowWinner(true)
@@ -444,7 +506,7 @@ function AuctionOverlay() {
     }
     
     setTotalParticipants(state.top?.length || 0)
-  }, [paused, remain, state.endsAt, state.top, inDelay, delayRemain, delayEndsAt, delayS])
+  }, [paused, remain, state.endsAt, state.top, inDelay, delayRemain, delayEndsAt, delayS, WS, room, state.title])
 
   const startAuction = async (seconds) => {
     setPaused(false); setInDelay(false); setDelayEndsAt(0)
@@ -483,8 +545,17 @@ function AuctionOverlay() {
         <div className="panel">
           <div className="panel-container">
             <div className="timer-box">
-              {inDelay && <div className="delay-label">⏳ DELAY</div>}
+              {inDelay && (
+                <div className="delay-label">
+                  ⏳ TIEMPO DE DELAY - Las donaciones siguen contando
+                </div>
+              )}
               <div className="timer">{mm}:{ss}</div>
+              {inDelay && (
+                <div className="delay-info">
+                  Ganador provisional: {currentWinner?.user || '—'} con {currentWinner?.total || 0} 💎
+                </div>
+              )}
             </div>
             <div className="board">
               {state.top.slice(0, topN).map((d, i) => (
