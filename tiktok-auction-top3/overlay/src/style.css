@@ -632,6 +632,108 @@ label {
   font-weight: 700; 
 }
 
+/* Admin Panel Tabs */
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.tab-btn {
+  padding: 10px 20px;
+  background: #1a2332;
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 0.3s;
+}
+
+.tab-btn:hover {
+  background: #2a3f5f;
+}
+
+.tab-btn.active {
+  background: #00d9ff;
+  color: #000;
+}
+
+/* Grid y Stats */
+.grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 15px;
+}
+
+.stat {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 20px;
+  border-radius: 12px;
+  text-align: center;
+}
+
+.stat-title {
+  font-size: 14px;
+  opacity: 0.9;
+  margin-bottom: 10px;
+}
+
+.stat-value {
+  font-size: 36px;
+  font-weight: 900;
+}
+
+/* Lista de usuarios */
+.list-table {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.row-lite {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 12px;
+  border-radius: 8px;
+  display: grid;
+  grid-template-columns: 1.5fr 1fr 1fr 2fr;
+  gap: 10px;
+  align-items: center;
+}
+
+.cell {
+  font-size: 14px;
+}
+
+.cell.actions {
+  display: flex;
+  gap: 5px;
+  justify-content: flex-end;
+}
+
+.w-danger {
+  background: #f44;
+  color: #fff;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  border: none;
+}
+
+/* Detail card */
+.detail-card {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 20px;
+  border-radius: 12px;
+  margin-top: 15px;
+}
+
+.detail-card h3 {
+  color: #00d9ff;
+  margin-bottom: 15px;
+}
+
 /* ====== Admin keys styles ====== */
 .keys { 
   display: flex; 
@@ -928,143 +1030,4 @@ label {
   cursor: pointer;
   font-weight: 700;
   font-size: 16px;
-}
-/* ====== CAMBIOS PARA EL DISEÑO DE LA IMAGEN ====== */
-
-/* Timer Box - Borde redondeado cyan más grueso */
-.timer-box {
-  background: transparent;
-  border: 6px solid #00d9ff; /* Borde más grueso */
-  border-radius: 30px; /* Más redondeado */
-  padding: 20px 0;
-  margin-bottom: 24px;
-  box-shadow: 0 0 30px rgba(0, 217, 255, 0.5);
-  width: 100%;
-  text-align: center;
-}
-
-/* Timer - Números más grandes y brillantes */
-.timer {
-  font-size: 90px; 
-  font-weight: 900; 
-  color: #00faff;
-  text-shadow: 0 0 40px #00d9ff, 0 0 80px #0099ff;
-  letter-spacing: 8px;
-}
-
-/* Rows - Fondo más oscuro y bordes dorados/plateados/bronce */
-.row {
-  display: flex; 
-  align-items: center; 
-  background: linear-gradient(135deg, #1a2540 0%, #0f1829 100%); /* Más oscuro */
-  border-radius: 24px; /* Más redondeado */
-  padding: 18px 22px; 
-  border: 5px solid; /* Borde más grueso */
-  box-shadow: 0 6px 25px rgba(0, 0, 0, 0.6);
-  min-height: 80px;
-}
-
-/* Bordes específicos por posición */
-.row:nth-child(1) {
-  border-color: #FFD700; /* Oro para el 1er lugar */
-  box-shadow: 0 0 25px rgba(255, 215, 0, 0.5), 0 6px 25px rgba(0, 0, 0, 0.6);
-}
-
-.row:nth-child(2) {
-  border-color: #C0C0C0; /* Plata para el 2do lugar */
-  box-shadow: 0 0 25px rgba(192, 192, 192, 0.4), 0 6px 25px rgba(0, 0, 0, 0.6);
-}
-
-.row:nth-child(3) {
-  border-color: #CD7F32; /* Bronce para el 3er lugar */
-  box-shadow: 0 0 25px rgba(205, 127, 50, 0.4), 0 6px 25px rgba(0, 0, 0, 0.6);
-}
-
-/* Badge - Más grande y con sombra */
-.badge { 
-  width: 56px; 
-  height: 56px; 
-  min-width: 56px;
-  border-radius: 50%; 
-  background: gold; 
-  color: #000;
-  font-weight: 900; 
-  font-size: 26px; 
-  display: flex; 
-  align-items: center; 
-  justify-content: center; 
-  margin-right: 18px;
-  box-shadow: 0 0 20px rgba(255, 215, 0, 0.8), 0 4px 15px rgba(0,0,0,0.7);
-}
-
-.badge.silver { 
-  background: #C0C0C0;
-  box-shadow: 0 0 20px rgba(192, 192, 192, 0.6), 0 4px 15px rgba(0,0,0,0.7);
-}
-
-.badge.bronze { 
-  background: #CD7F32;
-  box-shadow: 0 0 20px rgba(205, 127, 50, 0.6), 0 4px 15px rgba(0,0,0,0.7);
-}
-
-/* Avatar - Borde dorado más grueso y brillante */
-.avatar { 
-  width: 60px; 
-  height: 60px;
-  min-width: 60px;
-  border-radius: 50%; 
-  object-fit: cover; 
-  margin-right: 18px; 
-  border: 5px solid #FFD700; /* Borde más grueso */
-  box-shadow: 0 0 20px rgba(255, 215, 0, 0.8), 0 4px 12px rgba(0, 0, 0, 0.5);
-}
-
-/* Name - Texto más blanco y grande */
-.name { 
-  flex: 1; 
-  font-weight: 800; /* Más bold */
-  font-size: 22px; /* Más grande */
-  color: #ffffff; /* Más blanco */
-  white-space: nowrap; 
-  overflow: hidden; 
-  text-overflow: ellipsis;
-  text-shadow: 0 3px 6px rgba(0,0,0,0.7);
-  min-width: 0;
-  padding-right: 14px;
-}
-
-/* Coin - Icono y número más grandes */
-.coin { 
-  font-weight: 900; 
-  color: #FFD700; 
-  font-size: 24px; /* Más grande */
-  text-shadow: 0 0 15px rgba(255, 215, 0, 0.8);
-  white-space: nowrap;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.coin::before {
-  content: '💎';
-  font-size: 28px; /* Diamante más grande */
-}
-
-/* Panel Container - Quitar borde del contenedor si quieres solo bordes en items */
-.panel-container {
-  background: transparent; /* Fondo transparente */
-  border: none; /* Sin borde exterior */
-  border-radius: 0;
-  padding: 20px;
-  box-shadow: none;
-  width: 100%;
-  backdrop-filter: none;
-}
-
-/* Board - Ajustar espaciado */
-.board { 
-  width: 100%; 
-  display: flex; 
-  flex-direction: column; 
-  gap: 18px; /* Más espacio entre filas */
 }
