@@ -1,0 +1,9 @@
+[services.backend]
+root = "backend"
+build = "npm install"
+start = "npm start"
+
+[services.overlay]
+root = "overlay"
+build = "npm run build"
+start = "npm run start"
