@@ -27,6 +27,27 @@ const ORIGINS = [
   ...parseOriginsFromEnv(),
 ];
 
+// === Admin: estadísticas rápidas ===
+app.get('/admin/stats', requireAdmin, async (_req, res) => {
+  try {
+    const q = `
+      SELECT
+        COUNT(*)::int AS total,
+        SUM((status = 'active')::int)::int   AS active,
+        SUM((status = 'expired')::int)::int  AS expired,
+        SUM((status = 'disabled')::int)::int AS disabled
+      FROM users;
+    `;
+    const r = await pool.query(q);
+    const row = r.rows[0] || { total:0, active:0, expired:0, disabled:0 };
+    res.json({ ok: true, stats: row });
+  } catch (err) {
+    console.error('Error /admin/stats:', err);
+    res.status(500).json({ ok:false, error:'database-error' });
+  }
+});
+
+
 /* ================== APP / IO ================== */
 const app = express();
 app.use(cors({
