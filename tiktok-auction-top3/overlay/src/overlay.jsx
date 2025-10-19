@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
 import './style.css'
 
-const DEFAULT_WS = 'tiklive-production.up.railway.app'
+const DEFAULT_WS = 'https://tiklive-production.up.railway.app'
 
 /* =================== App (router mínimo por query) =================== */
 export default function App() {
