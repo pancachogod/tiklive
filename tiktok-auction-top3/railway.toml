@@ -1,7 +1,11 @@
-[services.backend]
-root = "."
-dockerfilePath = "Dockerfile.backend"
+[build]
+builder = "NIXPACKS"
+workingDir = "backend"
 
-[services.overlay]
-root = "."
-dockerfilePath = "Dockerfile.overlay"
+[deploy]
+startCommand = "node server.js"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+
+[env]
+NODE_ENV = "production"
