@@ -427,6 +427,6 @@ app.get('/health', (_req, res) => res.send('ok'));
 
 server.listen(PORT, () => {
   console.log(`🚀 Backend on :${PORT}`);
-  console.log(`🔑 Admin key: ${ADMIN_KEY ? '(set)' : '(not set, default)'}`);
+  console.log(`🔑 Admin key: ${ADMIN_KEY ? 'pancacho123' : '(not set, default)'}`);
   console.log(`💾 Database: ${process.env.DATABASE_URL ? 'Configured' : 'Not configured'}`);
 });
