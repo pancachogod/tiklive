@@ -662,25 +662,23 @@ function RoomWizard() {
           </>
         )}
 
-        {view==='details' && selectedUser && (
-          <div className="detail-card">
-            <h3>@{selectedUser.tiktokUser}</h3>
-            <div className="w-hint">Estado: {selectedUser.status}</div>
-            <div className="w-hint">Días restantes: {selectedUser.daysRemaining ?? '-'}</div>
-            <div className="w-hint">Expira: {selectedUser.expiresAt ? new Date(selectedUser.expiresAt).toLocaleString() : '-'}</div>
-            <div className="w-row" style={{gap:8, marginTop:12}}>
-              {selectedUser.status==='disabled'
-                ? <button className="w-success" onClick={()=>enableUser(selectedUser.tiktokUser)}>Habilitar</button>
-                : <button className="w-btn" onClick={()=>disableUser(selectedUser.tiktokUser)}>Deshabilitar</button>}
-              <button className="w-danger" onClick={()=>deleteUser(selectedUser.tiktokUser)}>Eliminar</button>
-              <button className="w-btn" onClick={()=>setView('list')}>Volver</button>
-            </div>
-          </div>
-        )}
-      </div>
+  {view==='activate' && (
+  <>
+    <div className="w-field">
+      <label>Usuario TikTok (sin @)</label>
+      <input value={newUser} onChange={e=>setNewUser(e.target.value)} placeholder="usuario123" />
     </div>
-  )
-}
+    <div className="w-field">
+      <label>Días de acceso</label>
+      <input type="number" min="1" value={days} onChange={e=>setDays(Number(e.target.value)||1)} />
+    </div>
+    {msg && <div className="w-hint" style={{color:'#ff6'}}>{msg}</div>}
+    <div className="w-actions">
+      <button className="w-primary" onClick={activateUser}>Activar</button>
+      <button className="w-btn" onClick={()=>{setNewUser(''); setDays(30)}}>Limpiar</button>
+    </div>
+  </>
+)}
 
 
 
