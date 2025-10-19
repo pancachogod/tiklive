@@ -11,9 +11,10 @@ const { Pool } = pg;
 /* ================== CONFIG BÁSICA ================== */
 const PORT = process.env.PORT || 8080;
 
-// ✅ ADMIN_KEY por ENV (no hardcodeada)
+// ✅ ADMIN_KEY solo por ENV (no hardcodear en producción)
 const ADMIN_KEY = process.env.ADMIN_KEY || 'pancacho123';
 
+/* ================== CORS ================== */
 // ✅ Orígenes permitidos (sin “/” final) + comodines + extras por ENV
 function parseOriginsFromEnv() {
   const raw = process.env.ALLOWED_ORIGINS || '';
@@ -21,7 +22,7 @@ function parseOriginsFromEnv() {
 }
 const ORIGINS = [
   'https://tiklive-git-main-pancachogods-projects.vercel.app',
-  'tiklive-production.up.railway.app',
+  'https://tiklive-production.up.railway.app',   // ← agregado https://
   /\.vercel\.app$/,
   /\.railway\.app$/,
   ...parseOriginsFromEnv()
@@ -42,7 +43,7 @@ const io = new Server(server, {
   transports: ['websocket', 'polling'],
 });
 
-/* ================== POSTGRESQL (Railway DB / Supabase) ================== */
+/* ================== POSTGRESQL ================== */
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false, require: true },
@@ -85,7 +86,7 @@ async function initDatabase() {
 }
 initDatabase();
 
-/* ================== SUBASTA MULTI-ROOM (igual que tenías) ================== */
+/* ================== SUBASTA MULTI-ROOM ================== */
 const rooms = new Map();
 const ROOM_IDLE_MS = 60 * 60 * 1000;
 const now = () => Date.now();
@@ -263,7 +264,7 @@ app.post('/:room/debug/gift', (req, res) => {
   postJSON(res, { ok: true, top: r.auction.top });
 });
 
-/* ================== SISTEMA DE USUARIOS (igual) ================== */
+/* ================== SISTEMA DE USUARIOS ================== */
 app.post('/user/verify', async (req, res) => {
   const tiktokUser = normalizeUsername(req.body?.tiktokUser);
   if (!tiktokUser) return res.status(400).json({ ok: false, error: 'user-required' });
@@ -289,11 +290,34 @@ app.post('/user/verify', async (req, res) => {
   }
 });
 
+/* ================== ADMIN ================== */
 function requireAdmin(req, res, next) {
   const headerKey = String(req.headers['x-admin-key'] || '').trim();
   if (headerKey !== ADMIN_KEY) return res.status(401).json({ ok: false, error: 'unauthorized' });
   next();
 }
+
+// ← NUEVO: endpoint requerido por tu panel
+app.get('/admin/stats', requireAdmin, async (_req, res) => {
+  try {
+    const total = await pool.query('SELECT COUNT(*) FROM users');
+    const active = await pool.query("SELECT COUNT(*) FROM users WHERE status = 'active'");
+    const expired = await pool.query("SELECT COUNT(*) FROM users WHERE status = 'expired'");
+    const disabled = await pool.query("SELECT COUNT(*) FROM users WHERE status = 'disabled'");
+    res.json({
+      ok: true,
+      stats: {
+        total: Number(total.rows[0].count),
+        active: Number(active.rows[0].count),
+        expired: Number(expired.rows[0].count),
+        disabled: Number(disabled.rows[0].count),
+      }
+    });
+  } catch (err) {
+    console.error('Error obteniendo stats:', err);
+    res.status(500).json({ ok:false, error:'database-error' });
+  }
+});
 
 app.post('/admin/user/activate', requireAdmin, async (req, res) => {
   const tiktokUser = normalizeUsername(req.body?.tiktokUser);
@@ -427,6 +451,6 @@ app.get('/health', (_req, res) => res.send('ok'));
 
 server.listen(PORT, () => {
   console.log(`🚀 Backend on :${PORT}`);
-  console.log(`🔑 Admin key: ${ADMIN_KEY ? 'pancacho123' : '(not set, default)'}`);
+  console.log(`🔑 Admin key: ${ADMIN_KEY ? '(set)' : '(not set, default)'}`); // ← no imprimir la clave
   console.log(`💾 Database: ${process.env.DATABASE_URL ? 'Configured' : 'Not configured'}`);
 });
