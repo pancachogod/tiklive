@@ -82,6 +82,18 @@ a {
   margin-bottom: 8px;
   text-shadow: 0 0 10px rgba(255, 215, 0, 0.8);
   animation: pulse 1.5s ease-in-out infinite;
+  background: rgba(255, 215, 0, 0.1);
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 2px solid #FFD700;
+}
+
+.delay-info {
+  font-size: 14px;
+  color: #00d9ff;
+  margin-top: 10px;
+  font-weight: 600;
+  opacity: 0.9;
 }
 
 @keyframes pulse {
