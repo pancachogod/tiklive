@@ -648,7 +648,7 @@ function RoomWizard() {
         <div className="w-field">
           <label>Nombre de sala</label>
           <div className="w-row">
-            <input value={room} onChange={e=>setRoom(e.target.value)} placeholder="miSala123"
+           <input value={room} onChange={e=>setRoom(e.target.value)} placeholder="miSala123" />
             </div>
             <div className="w-field">
               <label>Días de acceso</label>
