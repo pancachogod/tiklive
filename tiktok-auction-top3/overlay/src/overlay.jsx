@@ -1,6 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react' 
 import { io } from 'socket.io-client'
 import './style.css'
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  base: './',
+  plugins: [react()],
+  build: {
+    outDir: 'dist',
+    sourcemap: false
+  }
+})
 
 const DEFAULT_WS = 'https://tiklive-63mk.onrender.com'
 
