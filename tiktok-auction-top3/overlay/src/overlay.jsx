@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
 import './style.css'
 
-const DEFAULT_WS = 'https://tiklive-production.up.railway.app'
+/** URL del backend por defecto (puedes sobreescribir con ?ws= o VITE_WS_URL) */
+const DEFAULT_WS = (import.meta.env?.VITE_WS_URL || 'https://tiklive-production.up.railway.app')
 
 /* =================== App (router mínimo por query) =================== */
 export default function App() {
@@ -387,13 +388,15 @@ function AuctionOverlay() {
   const [showWinner, setShowWinner] = useState(false)
   const [currentWinner, setCurrentWinner] = useState(null)
 
+  // 🔒 NUEVO: marca de finalización para que no reinicie el contador tras el delay
+  const [finished, setFinished] = useState(false)
+
   const socketRef = useRef(null)
   const lastEndsAtRef = useRef(0)
 
-  // 🔧 NUEVO: clave por sala para persistir ganadores
+  // 🔧 clave por sala para persistir ganadores
   const winnersKey = useMemo(() => `Winners:${room}`, [room])
 
-  // 🔧 NUEVO: cargar ganadores guardados al montar / cambiar sala
   useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(winnersKey) || '[]')
@@ -401,7 +404,6 @@ function AuctionOverlay() {
     } catch {}
   }, [winnersKey])
 
-  // 🔧 NUEVO: persistir ganadores en localStorage
   useEffect(() => {
     try {
       localStorage.setItem(winnersKey, JSON.stringify(winners))
@@ -421,41 +423,19 @@ function AuctionOverlay() {
     })
     
     socket.on('donation', d => {
-      if (inDelay) {
-        console.log('💎 DONACIÓN DURANTE EL DELAY:', d)
-      } else {
-        console.log('💎 Donación:', d)
-      }
       setState(prev => ({ ...prev, top: d.top, donationsTotal: d.donationsTotal ?? prev.donationsTotal }))
     })
     
     return () => socket.close()
-  }, [WS, room, inDelay])
+  }, [WS, room])
 
   useEffect(() => {
-    // Actualizar inmediatamente
     setNow(Date.now())
-    
-    // Timer que funciona incluso con pestaña minimizada
-    const id = setInterval(() => {
-      setNow(Date.now())
-    }, 100) // Más frecuente para mayor precisión
-    
-    // Forzar actualización al volver a la pestaña
-    const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        setNow(Date.now())
-      }
-    }
-    
-    // Forzar actualización al enfocar la ventana
-    const handleFocus = () => {
-      setNow(Date.now())
-    }
-    
+    const id = setInterval(() => setNow(Date.now()), 100)
+    const handleVisibilityChange = () => { if (!document.hidden) setNow(Date.now()) }
+    const handleFocus = () => setNow(Date.now())
     document.addEventListener('visibilitychange', handleVisibilityChange)
     window.addEventListener('focus', handleFocus)
-    
     return () => {
       clearInterval(id)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
@@ -466,19 +446,26 @@ function AuctionOverlay() {
   useEffect(() => {
     (async () => {
       if (!autoUser) return
-      try {
-        await postJSON(`${WS}/${room}/user`, { user: autoUser })
-      } catch {}
+      try { await postJSON(`${WS}/${room}/user`, { user: autoUser }) } catch {}
     })()
   }, [autoUser, WS, room])
 
   const remain = Math.max(0, (state.endsAt || 0) - now)
   const delayRemain = Math.max(0, delayEndsAt - now)
-  const mm = String(Math.floor((paused ? 0 : (inDelay ? delayRemain : remain)) / 1000 / 60)).padStart(2, '0')
-  const ss = String(Math.floor((paused ? 0 : (inDelay ? delayRemain : remain)) / 1000) % 60).padStart(2, '0')
+
+  // Reloj mostrado (respeta 'finished')
+  const shownMs = finished ? 0 : (paused ? 0 : (inDelay ? delayRemain : remain))
+  const mm = String(Math.floor(shownMs / 1000 / 60)).padStart(2, '0')
+  const ss = String(Math.floor(shownMs / 1000) % 60).padStart(2, '0')
 
   useEffect(() => {
-    // Cuando termina el tiempo principal, EXTENDER la subasta por el tiempo de delay
+    // Si ya marcamos finalizado, no volvemos a extender ni a tocar nada del delay
+    if (finished) {
+      setTotalParticipants(state.top?.length || 0)
+      return
+    }
+
+    // Cuando termina el tiempo principal, EXTENDER por delay para que sigan contando donaciones
     if (!paused && !inDelay && remain === 0 && (state.endsAt || 0) > 0 && state.endsAt !== lastEndsAtRef.current) {
       lastEndsAtRef.current = state.endsAt
       const win = state.top?.[0]
@@ -486,70 +473,64 @@ function AuctionOverlay() {
         setCurrentWinner(win)
         setWinners(w => [{ name: win.user, total: win.total }, ...w])
       }
-      
-      console.log(`⏳ INICIANDO DELAY de ${delayS}s - Las donaciones siguen contando`)
+
       setInDelay(true)
       setDelayEndsAt(Date.now() + (delayS * 1000))
-      
-      // CRÍTICO: Extender la subasta en el backend para que siga recibiendo donaciones
+
       postJSON(`${WS}/${room}/auction/start`, { 
         durationSec: delayS, 
         title: state.title 
-      }).then(() => {
-        console.log('✅ Subasta extendida - Las donaciones SIGUEN contando')
-      }).catch(err => {
-        console.error('❌ Error extendiendo subasta:', err)
-      })
+      }).catch(err => console.error('❌ Error extendiendo subasta:', err))
     }
-    
-    // Cuando termina el delay, mostrar ganador FINAL
+
+    // Cuando termina el delay → NO reiniciar, mostrar ganador final y congelar el reloj
     if (inDelay && delayRemain === 0 && delayEndsAt > 0) {
       const finalWinner = state.top?.[0]
-      console.log('🏆 Delay terminado. Ganador FINAL con donaciones del delay:', finalWinner)
-      
       if (finalWinner) {
         setCurrentWinner(finalWinner)
-        // Actualizar el ganador con el total FINAL (incluye donaciones del delay)
         setWinners(w => {
           const newWinners = [...w]
-          if (newWinners.length > 0) {
-            newWinners[0] = { name: finalWinner.user, total: finalWinner.total }
-          }
+          if (newWinners.length > 0) newWinners[0] = { name: finalWinner.user, total: finalWinner.total }
           return newWinners
         })
       }
-      
+
       setInDelay(false)
       setDelayEndsAt(0)
+      setFinished(true)             // 🔒 congela contador en 00:00 y evita nuevas extensiones
       setShowWinner(true)
       setTimeout(() => { setShowWinner(false); setCurrentWinner(null) }, 5000)
     }
-    
-    setTotalParticipants(state.top?.length || 0)
-  }, [paused, remain, state.endsAt, state.top, inDelay, delayRemain, delayEndsAt, delayS, WS, room, state.title])
 
-  // 🔧 NUEVO: función para limpiar participantes/board en cliente
+    setTotalParticipants(state.top?.length || 0)
+  }, [paused, remain, state.endsAt, state.top, inDelay, delayRemain, delayEndsAt, delayS, WS, room, state.title, finished])
+
+  // Limpia participantes/board en cliente
   const clearParticipantsClient = React.useCallback(() => {
-    setState(prev => ({ ...prev, top: [], donationsTotal: 0 })) // limpia ranking y diamantes acumulados en vista
+    setState(prev => ({ ...prev, top: [], donationsTotal: 0 }))
     setTotalParticipants(0)
   }, [])
 
   const startAuction = async (seconds) => {
-    // 🔧 NUEVO: al reiniciar, ocultar pantalla de ganador y limpiar board local
+    // Reset de flags al iniciar/reiniciar
     setShowWinner(false)
     setCurrentWinner(null)
-    setPaused(false); setInDelay(false); setDelayEndsAt(0)
-    clearParticipantsClient() // ← limpia participantes para que salga en blanco
+    setPaused(false)
+    setInDelay(false)
+    setDelayEndsAt(0)
+    setFinished(false)             // 🔓 vuelve a correr el contador
+    clearParticipantsClient()
     await postJSON(`${WS}/${room}/auction/start`, { durationSec: Math.max(1, Number(seconds)||0), title: state.title })
   }
 
   const finalizeAuction = async () => {
     setPaused(false); setInDelay(false); setDelayEndsAt(0)
+    setFinished(true)              // 🔒 finalizar manual congela reloj
     await postJSON(`${WS}/${room}/auction/start`, { durationSec: 1, title: state.title })
   }
 
   const addTime = async (plus) => {
-    if (inDelay) return
+    if (inDelay || finished) return
     const next = Math.max(1, Math.floor(remain/1000) + plus)
     await postJSON(`${WS}/${room}/auction/start`, { durationSec: next, title: state.title })
   }
@@ -611,7 +592,7 @@ function AuctionOverlay() {
               <div className="dash-col">
                 <div className="box box-blue">
                   <div className="box-header">🏆 GANADORES <span className="text-xs opacity-70"> (guardados por sala)</span></div>
-                  <div className="box-body list">
+                  <div className="box-body list" style={{ overflowY:'auto' /* ⬅️ scroll para lista larga */ }}>
                     {winners.length === 0 && <div className="empty">Sin ganadores</div>}
                     {winners.map((w, idx)=>(
                       <div className="winner-row" key={idx}>
@@ -622,7 +603,6 @@ function AuctionOverlay() {
                   </div>
                   <div className="box-footer">
                     Total: {winners.length}
-                    {/* 🔧 NUEVO: botón para limpiar ganadores guardados */}
                     <button 
                       className="btn btn-gray" 
                       style={{marginLeft:8}}
@@ -639,7 +619,7 @@ function AuctionOverlay() {
               <div className="dash-col">
                 <div className="box box-green">
                   <div className="box-header">👥 PARTICIPANTES</div>
-                  <div className="box-body list">
+                  <div className="box-body list" style={{ overflowY:'auto' /* ⬅️ scroll para lista larga */ }}>
                     {state.top.length === 0 && <div className="empty">Sin participantes</div>}
                     {state.top.map((d, i)=>(
                       <div className="winner-row" key={d.user+i}>
@@ -666,7 +646,6 @@ function AuctionOverlay() {
                     </div>
                     <div className="btn-row">
                       <button className="btn btn-red" onClick={finalizeAuction}>🏁 Finalizar</button>
-                      {/* 🔧 NUEVO: Restart ya limpia participantes */}
                       <button className="btn btn-gray" onClick={()=>startAuction(tInit)}>🔁 Restart</button>
                     </div>
                     <div className="fields-1">
@@ -677,7 +656,6 @@ function AuctionOverlay() {
                         <button className="btn btn-red" onClick={()=>addTime(-Math.abs(editDelta))}>-</button>
                       </div>
                     </div>
-                    {/* 🔧 NUEVO: botón rápido solo para limpiar participantes sin reiniciar */}
                     <div className="btn-row" style={{marginTop:8}}>
                       <button className="btn btn-gray" onClick={clearParticipantsClient}>🧽 Limpiar participantes (vista)</button>
                     </div>
@@ -753,11 +731,7 @@ function RoomWizard() {
 }
 
 /* ======================= Helpers ======================= */
-function sanitizeBaseUrl(u){ 
-  let s = String(u||'').trim().replace(/\/+$/,'')
-  if (!/^https?:\/\//i.test(s)) s = 'https://' + s
-  return s
-}
+function sanitizeBaseUrl(u){ return String(u||'').trim().replace(/\/+$/,'') }
 async function postJSON(url, body){
   const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body ?? {}) })
   const text = await r.text(); return { ok: r.ok, status: r.status, data: text ? JSON.parse(text) : {} }
