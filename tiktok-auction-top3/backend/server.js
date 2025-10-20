@@ -1,3 +1,4 @@
+// server.js
 import 'dotenv/config';
 import express from 'express';
 import http from 'http';
@@ -11,10 +12,10 @@ const { Pool } = pg;
 /* ================== CONFIG BÁSICA ================== */
 const PORT = process.env.PORT || 8080;
 
-// Clave admin por ENV (no hardcodear)
+// Clave admin por ENV (fallback para desarrollo)
 const ADMIN_KEY = process.env.ADMIN_KEY || 'pancacho123';
 
-// Orígenes permitidos (sin “/” final). Puedes ampliar por ENV.
+// Orígenes permitidos (sin “/” final). Puedes ampliar por ENV con ALLOWED_ORIGINS= a,b,c
 function parseOriginsFromEnv() {
   const raw = process.env.ALLOWED_ORIGINS || '';
   return raw.split(',').map(s => s.trim()).filter(Boolean);
@@ -27,27 +28,6 @@ const ORIGINS = [
   ...parseOriginsFromEnv(),
 ];
 
-// === Admin: estadísticas rápidas ===
-app.get('/admin/stats', requireAdmin, async (_req, res) => {
-  try {
-    const q = `
-      SELECT
-        COUNT(*)::int AS total,
-        SUM((status = 'active')::int)::int   AS active,
-        SUM((status = 'expired')::int)::int  AS expired,
-        SUM((status = 'disabled')::int)::int AS disabled
-      FROM users;
-    `;
-    const r = await pool.query(q);
-    const row = r.rows[0] || { total:0, active:0, expired:0, disabled:0 };
-    res.json({ ok: true, stats: row });
-  } catch (err) {
-    console.error('Error /admin/stats:', err);
-    res.status(500).json({ ok:false, error:'database-error' });
-  }
-});
-
-
 /* ================== APP / IO ================== */
 const app = express();
 app.use(cors({
@@ -59,7 +39,7 @@ app.use(express.json());
 
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: ORIGINS, methods: ['GET','POST'] },
+  cors: { origin: ORIGINS, methods: ['GET', 'POST'] },
   transports: ['websocket', 'polling'],
 });
 
@@ -70,13 +50,13 @@ const pool = new Pool({
   connectionTimeoutMillis: 30000,
   idleTimeoutMillis: 30000,
   max: 5,
-  allowExitOnIdle: false
+  allowExitOnIdle: false,
 });
 pool.on('error', (err) => console.error('❌ Pool error:', err.message));
 
 async function initDatabase() {
   const maxRetries = 5;
-  for (let i=0;i<maxRetries;i++){
+  for (let i = 0; i < maxRetries; i++) {
     try {
       await pool.query('SELECT NOW()');
       await pool.query(`
@@ -98,18 +78,27 @@ async function initDatabase() {
       console.log('✅ DB OK');
       return;
     } catch (e) {
-      console.error(`❌ DB intento ${i+1}:`, e.message);
-      if (i===maxRetries-1) { console.log('⚠️ sigo sin DB; el server arranca igual'); return; }
-      await new Promise(r=>setTimeout(r, Math.min(1000 * 2**(i+1), 10000)));
+      console.error(`❌ DB intento ${i + 1}:`, e.message);
+      if (i === maxRetries - 1) {
+        console.log('⚠️ sigo sin DB; el server arranca igual');
+        return;
+      }
+      await new Promise(r => setTimeout(r, Math.min(1000 * 2 ** (i + 1), 10000)));
     }
   }
 }
 initDatabase();
 
-/* ================== SUBASTA MULTI-ROOM ================== */
+/* ================== HELPERS GENERALES ================== */
+const postJSON = (res, data) => res.json(data);
+const now = () => Date.now();
+function normalizeUsername(u) {
+  return String(u || '').trim().toLowerCase().replace(/^@+/, '');
+}
+
+/* ================== SUBASTA MULTI-ROOM / TIKTOK ================== */
 const rooms = new Map();
 const ROOM_IDLE_MS = 60 * 60 * 1000;
-const now = () => Date.now();
 
 function newRoom(roomId) {
   return {
@@ -170,10 +159,10 @@ async function connectLoop(r) {
       if (!isRunning(r)) return;
       if (data?.giftType === 1 && !data?.repeatEnd) return;
 
-      const user   = data?.nickname || data?.uniqueId || 'Anónimo';
+      const user = data?.nickname || data?.uniqueId || 'Anónimo';
       const avatar = data?.profilePictureUrl || '';
-      const per    = data?.diamondCount ?? data?.gift?.diamondCount ?? 0;
-      const count  = data?.repeatCount ?? 1;
+      const per = data?.diamondCount ?? data?.gift?.diamondCount ?? 0;
+      const count = data?.repeatCount ?? 1;
       const diamonds = per * count;
 
       if (diamonds > 0) {
@@ -196,6 +185,7 @@ async function connectLoop(r) {
   }
 }
 
+// Limpieza de rooms inactivos
 setInterval(() => {
   const cutoff = now() - ROOM_IDLE_MS;
   for (const [id, r] of rooms) {
@@ -208,6 +198,7 @@ setInterval(() => {
   }
 }, 10 * 60 * 1000);
 
+// Re-publicar estado de subastas finalizadas
 setInterval(() => {
   for (const r of rooms.values()) {
     if (!isRunning(r) && r.auction.endsAt !== 0) {
@@ -216,13 +207,194 @@ setInterval(() => {
   }
 }, 1000);
 
-/* ================== ENDPOINTS DE SALA ================== */
-const postJSON = (res, data)=>res.json(data);
-
-function normalizeUsername(u) {
-  return String(u || '').trim().toLowerCase().replace(/^@+/, '');
+/* ================== MIDDLEWARE ADMIN ================== */
+function requireAdmin(req, res, next) {
+  const headerKey = String(req.headers['x-admin-key'] || '').trim();
+  if (headerKey !== ADMIN_KEY) return res.status(401).json({ ok: false, error: 'unauthorized' });
+  next();
 }
 
+/* ================== RUTAS ADMIN (PANEL) ================== */
+// /admin/stats para validar clave y mostrar métricas
+app.get('/admin/stats', requireAdmin, async (_req, res) => {
+  try {
+    const q = `
+      SELECT
+        COUNT(*)::int AS total,
+        SUM((status = 'active')::int)::int   AS active,
+        SUM((status = 'expired')::int)::int  AS expired,
+        SUM((status = 'disabled')::int)::int AS disabled
+      FROM users;
+    `;
+    const r = await pool.query(q);
+    const row = r.rows[0] || { total: 0, active: 0, expired: 0, disabled: 0 };
+    res.json({ ok: true, stats: row });
+  } catch (err) {
+    console.error('Error /admin/stats:', err);
+    res.status(500).json({ ok: false, error: 'database-error' });
+  }
+});
+
+app.post('/admin/user/activate', requireAdmin, async (req, res) => {
+  const tiktokUser = normalizeUsername(req.body?.tiktokUser);
+  const days = Math.max(1, Number(req.body?.days) || 30);
+  if (!tiktokUser) return res.status(400).json({ ok: false, error: 'user-required' });
+
+  const t = Date.now();
+  try {
+    const cur = await pool.query('SELECT * FROM users WHERE tiktok_user = $1', [tiktokUser]);
+    if (cur.rows.length > 0) {
+      const user = cur.rows[0];
+      const baseTime = user.status === 'expired' ? t : Math.max(user.expires_at, t);
+      const newExpiresAt = baseTime + days * 86400000;
+      const newDaysActive = Math.ceil((newExpiresAt - t) / 86400000);
+      await pool.query(
+        'UPDATE users SET expires_at = $1, days_active = $2, status = $3 WHERE tiktok_user = $4',
+        [newExpiresAt, newDaysActive, 'active', tiktokUser]
+      );
+    } else {
+      const expiresAt = t + days * 86400000;
+      await pool.query(
+        'INSERT INTO users (tiktok_user, days_active, expires_at, created_at, status, notes, usage_count) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+        [tiktokUser, days, expiresAt, t, 'active', '', 0]
+      );
+    }
+    const updated = await pool.query('SELECT * FROM users WHERE tiktok_user = $1', [tiktokUser]);
+    const u = updated.rows[0];
+    res.json({ ok: true, user: { tiktokUser: u.tiktok_user, daysActive: u.days_active, expiresAt: u.expires_at, status: u.status } });
+  } catch (err) {
+    console.error('Error activando usuario:', err);
+    res.status(500).json({ ok: false, error: 'database-error' });
+  }
+});
+
+app.get('/admin/user/list', requireAdmin, async (req, res) => {
+  const { status, search } = req.query;
+  const t = Date.now();
+  try {
+    let query = 'SELECT * FROM users WHERE 1=1';
+    const params = [];
+    if (status && status !== 'all') { query += ` AND status = $${params.length + 1}`; params.push(status); }
+    if (search) { query += ` AND tiktok_user ILIKE $${params.length + 1}`; params.push(`%${search}%`); }
+    query += ' ORDER BY created_at DESC';
+    const result = await pool.query(query, params);
+    const users = result.rows.map(u => ({
+      tiktokUser: u.tiktok_user,
+      daysActive: u.days_active,
+      expiresAt: u.expires_at,
+      createdAt: u.created_at,
+      lastUsed: u.last_used,
+      status: u.status,
+      notes: u.notes,
+      usageCount: u.usage_count,
+      daysRemaining: Math.max(0, Math.ceil((u.expires_at - t) / 86400000)),
+      isExpired: t > u.expires_at
+    }));
+    res.json({ ok: true, users, total: users.length });
+  } catch (err) {
+    console.error('Error listando usuarios:', err);
+    res.status(500).json({ ok: false, error: 'database-error' });
+  }
+});
+
+app.get('/admin/user/:tiktokUser', requireAdmin, async (req, res) => {
+  const tiktokUser = normalizeUsername(req.params.tiktokUser);
+  const t = Date.now();
+  try {
+    const result = await pool.query('SELECT * FROM users WHERE tiktok_user = $1', [tiktokUser]);
+    if (result.rows.length === 0) return res.status(404).json({ ok: false, error: 'not-found' });
+    const u = result.rows[0];
+    res.json({
+      ok: true, user: {
+        tiktokUser: u.tiktok_user,
+        daysActive: u.days_active,
+        expiresAt: u.expires_at,
+        createdAt: u.created_at,
+        lastUsed: u.last_used,
+        status: u.status,
+        notes: u.notes,
+        usageCount: u.usage_count,
+        daysRemaining: Math.max(0, Math.ceil((u.expires_at - t) / 86400000)),
+        isExpired: t > u.expires_at
+      }
+    });
+  } catch (err) {
+    console.error('Error obteniendo usuario:', err);
+    res.status(500).json({ ok: false, error: 'database-error' });
+  }
+});
+
+app.post('/admin/user/:tiktokUser/disable', requireAdmin, async (req, res) => {
+  const tiktokUser = normalizeUsername(req.params.tiktokUser);
+  try {
+    const result = await pool.query('UPDATE users SET status = $1 WHERE tiktok_user = $2 RETURNING *', ['disabled', tiktokUser]);
+    if (result.rows.length === 0) return res.status(404).json({ ok: false, error: 'not-found' });
+    res.json({ ok: true, message: 'User disabled' });
+  } catch (err) {
+    console.error('Error desactivando usuario:', err);
+    res.status(500).json({ ok: false, error: 'database-error' });
+  }
+});
+
+app.post('/admin/user/:tiktokUser/enable', requireAdmin, async (req, res) => {
+  const tiktokUser = normalizeUsername(req.params.tiktokUser);
+  const t = Date.now();
+  try {
+    const result = await pool.query('SELECT * FROM users WHERE tiktok_user = $1', [tiktokUser]);
+    if (result.rows.length === 0) return res.status(404).json({ ok: false, error: 'not-found' });
+    const user = result.rows[0];
+    if (t > user.expires_at) return res.json({ ok: false, error: 'expired', message: 'Use /activate to add days' });
+    await pool.query('UPDATE users SET status = $1 WHERE tiktok_user = $2', ['active', tiktokUser]);
+    res.json({ ok: true, message: 'User enabled' });
+  } catch (err) {
+    console.error('Error reactivando usuario:', err);
+    res.status(500).json({ ok: false, error: 'database-error' });
+  }
+});
+
+app.post('/admin/user/:tiktokUser/delete', requireAdmin, async (req, res) => {
+  const tiktokUser = normalizeUsername(req.params.tiktokUser);
+  try {
+    const result = await pool.query('DELETE FROM users WHERE tiktok_user = $1 RETURNING *', [tiktokUser]);
+    res.json({ ok: true, deleted: result.rows.length > 0 });
+  } catch (err) {
+    console.error('Error eliminando usuario:', err);
+    res.status(500).json({ ok: false, error: 'database-error' });
+  }
+});
+
+/* ================== RUTAS DE USO (CLIENTE) ================== */
+app.post('/user/verify', async (req, res) => {
+  const tiktokUser = normalizeUsername(req.body?.tiktokUser);
+  if (!tiktokUser) return res.status(400).json({ ok: false, error: 'user-required' });
+  try {
+    const result = await pool.query('SELECT * FROM users WHERE tiktok_user = $1', [tiktokUser]);
+    if (result.rows.length === 0) return res.json({ ok: false, error: 'user-not-found' });
+
+    const user = result.rows[0];
+    const t = Date.now();
+
+    if (user.status === 'disabled') return res.json({ ok: false, error: 'user-disabled' });
+
+    if (t > user.expires_at) {
+      await pool.query('UPDATE users SET status = $1 WHERE tiktok_user = $2', ['expired', tiktokUser]);
+      return res.json({ ok: false, error: 'subscription-expired', daysRemaining: 0 });
+    }
+
+    await pool.query('UPDATE users SET last_used = $1, usage_count = usage_count + 1 WHERE tiktok_user = $2', [t, tiktokUser]);
+    res.json({
+      ok: true,
+      tiktokUser: user.tiktok_user,
+      expiresAt: user.expires_at,
+      daysRemaining: Math.ceil((user.expires_at - t) / 86400000)
+    });
+  } catch (err) {
+    console.error('Error verificando usuario:', err);
+    res.status(500).json({ ok: false, error: 'database-error' });
+  }
+});
+
+/* ================== ENDPOINTS DE SALA ================== */
 app.post('/:room/user', (req, res) => {
   const roomId = String(req.params.room || '').trim();
   const r = getRoom(roomId);
@@ -273,7 +445,7 @@ app.get('/:room/status', (req, res) => {
 
 app.post('/:room/debug/gift', (req, res) => {
   const r = getRoom(String(req.params.room || '').trim());
-  const { user='Tester', avatar='', diamonds=50 } = req.body || {};
+  const { user = 'Tester', avatar = '', diamonds = 50 } = req.body || {};
   if (!isRunning(r)) return postJSON(res, { ok: true, ignored: true, reason: 'auction-ended' });
   const prev = r.donors.get(user) || { total: 0, avatar };
   prev.total += Number(diamonds);
@@ -282,177 +454,6 @@ app.post('/:room/debug/gift', (req, res) => {
   r.auction.donationsTotal += Number(diamonds);
   emitDonation(r);
   postJSON(res, { ok: true, top: r.auction.top });
-});
-
-/* ================== SISTEMA DE USUARIOS ================== */
-app.post('/user/verify', async (req, res) => {
-  const tiktokUser = normalizeUsername(req.body?.tiktokUser);
-  if (!tiktokUser) return res.status(400).json({ ok: false, error: 'user-required' });
-  try {
-    const result = await pool.query('SELECT * FROM users WHERE tiktok_user = $1', [tiktokUser]);
-    if (result.rows.length === 0) return res.json({ ok: false, error: 'user-not-found' });
-
-    const user = result.rows[0];
-    const t = Date.now();
-
-    if (user.status === 'disabled') return res.json({ ok: false, error: 'user-disabled' });
-
-    if (t > user.expires_at) {
-      await pool.query('UPDATE users SET status = $1 WHERE tiktok_user = $2', ['expired', tiktokUser]);
-      return res.json({ ok: false, error: 'subscription-expired', daysRemaining: 0 });
-    }
-
-    await pool.query('UPDATE users SET last_used = $1, usage_count = usage_count + 1 WHERE tiktok_user = $2', [t, tiktokUser]);
-    res.json({ ok: true, tiktokUser: user.tiktok_user, expiresAt: user.expires_at, daysRemaining: Math.ceil((user.expires_at - t) / 86400000) });
-  } catch (err) {
-    console.error('Error verificando usuario:', err);
-    res.status(500).json({ ok: false, error: 'database-error' });
-  }
-});
-
-function requireAdmin(req, res, next) {
-  const headerKey = String(req.headers['x-admin-key'] || '').trim();
-  if (headerKey !== ADMIN_KEY) return res.status(401).json({ ok: false, error: 'unauthorized' });
-  next();
-}
-
-/* === NUEVO: /admin/stats para el Panel === */
-app.get('/admin/stats', requireAdmin, async (_req, res) => {
-  try {
-    const q = async (status) =>
-      (await pool.query('SELECT COUNT(*)::int AS c FROM users WHERE status = $1', [status])).rows[0].c;
-    const [active, expired, disabled] = await Promise.all([
-      q('active'), q('expired'), q('disabled')
-    ]);
-    res.json({ ok: true, stats: { active, expired, disabled } });
-  } catch (e) {
-    console.error('Error stats:', e);
-    res.status(500).json({ ok: false, error: 'database-error' });
-  }
-});
-
-app.post('/admin/user/activate', requireAdmin, async (req, res) => {
-  const tiktokUser = normalizeUsername(req.body?.tiktokUser);
-  const days = Math.max(1, Number(req.body?.days) || 30);
-  if (!tiktokUser) return res.status(400).json({ ok: false, error: 'user-required' });
-
-  const t = Date.now();
-  try {
-    const cur = await pool.query('SELECT * FROM users WHERE tiktok_user = $1', [tiktokUser]);
-    if (cur.rows.length > 0) {
-      const user = cur.rows[0];
-      const baseTime = user.status === 'expired' ? t : Math.max(user.expires_at, t);
-      const newExpiresAt = baseTime + days * 86400000;
-      const newDaysActive = Math.ceil((newExpiresAt - t) / 86400000);
-      await pool.query('UPDATE users SET expires_at = $1, days_active = $2, status = $3 WHERE tiktok_user = $4',
-        [newExpiresAt, newDaysActive, 'active', tiktokUser]);
-    } else {
-      const expiresAt = t + days * 86400000;
-      await pool.query(
-        'INSERT INTO users (tiktok_user, days_active, expires_at, created_at, status, notes, usage_count) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-        [tiktokUser, days, expiresAt, t, 'active', '', 0]
-      );
-    }
-    const updated = await pool.query('SELECT * FROM users WHERE tiktok_user = $1', [tiktokUser]);
-    const u = updated.rows[0];
-    res.json({ ok: true, user: { tiktokUser: u.tiktok_user, daysActive: u.days_active, expiresAt: u.expires_at, status: u.status } });
-  } catch (err) {
-    console.error('Error activando usuario:', err);
-    res.status(500).json({ ok: false, error: 'database-error' });
-  }
-});
-
-app.get('/admin/user/list', requireAdmin, async (req, res) => {
-  const { status, search } = req.query;
-  const t = Date.now();
-  try {
-    let query = 'SELECT * FROM users WHERE 1=1';
-    const params = [];
-    if (status && status !== 'all') { query += ` AND status = $${params.length+1}`; params.push(status); }
-    if (search) { query += ` AND tiktok_user ILIKE $${params.length+1}`; params.push(`%${search}%`); }
-    query += ' ORDER BY created_at DESC';
-    const result = await pool.query(query, params);
-    const users = result.rows.map(u => ({
-      tiktokUser: u.tiktok_user,
-      daysActive: u.days_active,
-      expiresAt: u.expires_at,
-      createdAt: u.created_at,
-      lastUsed: u.last_used,
-      status: u.status,
-      notes: u.notes,
-      usageCount: u.usage_count,
-      daysRemaining: Math.max(0, Math.ceil((u.expires_at - t) / 86400000)),
-      isExpired: t > u.expires_at
-    }));
-    res.json({ ok: true, users, total: users.length });
-  } catch (err) {
-    console.error('Error listando usuarios:', err);
-    res.status(500).json({ ok: false, error: 'database-error' });
-  }
-});
-
-app.get('/admin/user/:tiktokUser', requireAdmin, async (req, res) => {
-  const tiktokUser = normalizeUsername(req.params.tiktokUser);
-  const t = Date.now();
-  try {
-    const result = await pool.query('SELECT * FROM users WHERE tiktok_user = $1', [tiktokUser]);
-    if (result.rows.length === 0) return res.status(404).json({ ok: false, error: 'not-found' });
-    const u = result.rows[0];
-    res.json({ ok: true, user: {
-      tiktokUser: u.tiktok_user,
-      daysActive: u.days_active,
-      expiresAt: u.expires_at,
-      createdAt: u.created_at,
-      lastUsed: u.last_used,
-      status: u.status,
-      notes: u.notes,
-      usageCount: u.usage_count,
-      daysRemaining: Math.max(0, Math.ceil((u.expires_at - t) / 86400000)),
-      isExpired: t > u.expires_at
-    }});
-  } catch (err) {
-    console.error('Error obteniendo usuario:', err);
-    res.status(500).json({ ok: false, error: 'database-error' });
-  }
-});
-
-app.post('/admin/user/:tiktokUser/disable', requireAdmin, async (req, res) => {
-  const tiktokUser = normalizeUsername(req.params.tiktokUser);
-  try {
-    const result = await pool.query('UPDATE users SET status = $1 WHERE tiktok_user = $2 RETURNING *', ['disabled', tiktokUser]);
-    if (result.rows.length === 0) return res.status(404).json({ ok: false, error: 'not-found' });
-    res.json({ ok: true, message: 'User disabled' });
-  } catch (err) {
-    console.error('Error desactivando usuario:', err);
-    res.status(500).json({ ok: false, error: 'database-error' });
-  }
-});
-
-app.post('/admin/user/:tiktokUser/enable', requireAdmin, async (req, res) => {
-  const tiktokUser = normalizeUsername(req.params.tiktokUser);
-  const t = Date.now();
-  try {
-    const result = await pool.query('SELECT * FROM users WHERE tiktok_user = $1', [tiktokUser]);
-    if (result.rows.length === 0) return res.status(404).json({ ok: false, error: 'not-found' });
-    const user = result.rows[0];
-    if (t > user.expires_at) return res.json({ ok: false, error: 'expired', message: 'Use /activate to add days' });
-    await pool.query('UPDATE users SET status = $1 WHERE tiktok_user = $2', ['active', tiktokUser]);
-    res.json({ ok: true, message: 'User enabled' });
-  } catch (err) {
-    console.error('Error reactivando usuario:', err);
-    res.status(500).json({ ok: false, error: 'database-error' });
-  }
-});
-
-app.post('/admin/user/:tiktokUser/delete', requireAdmin, async (req, res) => {
-  const tiktokUser = normalizeUsername(req.params.tiktokUser);
-  try {
-    const result = await pool.query('DELETE FROM users WHERE tiktok_user = $1 RETURNING *', [tiktokUser]);
-    res.json({ ok: true, deleted: result.rows.length > 0 });
-  } catch (err) {
-    console.error('Error eliminando usuario:', err);
-    res.status(500).json({ ok: false, error: 'database-error' });
-  }
 });
 
 /* ================== SOCKET.IO & HEALTH ================== */
