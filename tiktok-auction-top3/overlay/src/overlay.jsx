@@ -139,7 +139,9 @@ function AdminPanel() {
 
   const loadStats = async () => {
     try {
-      const res = await fetch(`${WS}/admin/stats`, { headers: { 'x-admin-key': adminKey } })
+      const res = await fetch(`${WS}/admin/stats`, {
+        headers: { 'x-admin-key': adminKey
+        }})
       const data = await res.json().catch(()=>({}))
       if (data?.ok) setStats(data.stats)
     } catch {}
@@ -374,7 +376,7 @@ function AuctionOverlay() {
   const [tInit, setTInit] = useState(60)
   const [delayS, setDelayS] = useState(10)
 
-  // NUEVO: congelar contador en 0:00 tras el delay
+  // Congelar contador en 0 al final del delay
   const [frozenZero, setFrozenZero] = useState(false)
 
   // Ganadores
@@ -387,16 +389,17 @@ function AuctionOverlay() {
   const lastEndsAtRef = useRef(0)
 
   // Acumulador local para delay
-  const delayBaseRef = useRef(null)
+  const delayBaseRef = useRef(null)   // { user: totalAntesDeDelay }
+  const delayBaseSumRef = useRef(0)   // suma de diamantes antes del delay
   const [clientTop, setClientTop] = useState([])
 
   const winnersKey = useMemo(() => `Winners:${room}`, [room])
 
-  useEffect(() => {
-    try { const s = JSON.parse(localStorage.getItem(winnersKey) || '[]'); if (Array.isArray(s)) setWinners(s) } catch {}
-  }, [winnersKey])
+  // Persistencia ganadores
+  useEffect(() => { try { const s = JSON.parse(localStorage.getItem(winnersKey) || '[]'); if (Array.isArray(s)) setWinners(s) } catch {} }, [winnersKey])
   useEffect(() => { try { localStorage.setItem(winnersKey, JSON.stringify(winners)) } catch {} }, [winners, winnersKey])
 
+  // Conexión socket
   useEffect(() => {
     const socket = io(WS, { transports:['websocket', 'polling'], query:{ room } })
     socketRef.current = socket
@@ -405,12 +408,16 @@ function AuctionOverlay() {
       setState(prev => ({ ...prev, ...st }))
       if (!inDelay) setClientTop(st.top || [])
     })
+
     socket.on('donation', d => {
       if (inDelay && delayBaseRef.current) {
-        const base = delayBaseRef.current
-        const nowTop = d.top || []
+        // Combinar "baseline" + donaciones del delay (d.top)
+        const base = delayBaseRef.current // {user: totalPreDelay}
+        const nowTop = d.top || []        // totales del delay
         const mergedMap = new Map(Object.entries(base))
-        for (const row of nowTop) mergedMap.set(row.user, (mergedMap.get(row.user) || 0) + (row.total || 0))
+        for (const row of nowTop) {
+          mergedMap.set(row.user, (mergedMap.get(row.user) || 0) + (row.total || 0))
+        }
         const merged = Array.from(mergedMap.entries())
           .map(([user,total])=>{
             const avatar = (nowTop.find(r=>r.user===user)?.avatar) || (clientTop.find(r=>r.user===user)?.avatar) || ''
@@ -418,14 +425,21 @@ function AuctionOverlay() {
           })
           .sort((a,b)=>b.total-a.total)
         setClientTop(merged)
+
+        // Total de diamantes (preDelay + delayActual)
+        setState(prev => ({
+          ...prev,
+          donationsTotal: delayBaseSumRef.current + (d.donationsTotal || 0)
+        }))
       } else {
+        // Modo normal (sin delay): usar lo que manda el server
         setClientTop(d.top || [])
+        setState(prev => ({ ...prev, donationsTotal: d.donationsTotal ?? prev.donationsTotal }))
       }
-      setState(prev => ({ ...prev, donationsTotal: d.donationsTotal ?? prev.donationsTotal }))
     })
 
     return () => socket.close()
-  }, [WS, room, inDelay])
+  }, [WS, room, inDelay, clientTop])
 
   // Timer
   useEffect(() => {
@@ -448,23 +462,30 @@ function AuctionOverlay() {
   const remain = Math.max(0, (state.endsAt || 0) - now)
   const delayRemain = Math.max(0, delayEndsAt - now)
 
-  // AQUI aplicamos el "congelado en 0"
+  // Tiempo mostrado (con "frozenZero")
   const timeLeftMs = frozenZero ? 0 : (paused ? 0 : (inDelay ? delayRemain : remain))
   const mm = String(Math.floor(timeLeftMs / 1000 / 60)).padStart(2, '0')
   const ss = String(Math.floor(timeLeftMs / 1000) % 60).padStart(2, '0')
 
+  // Lógica de transición normal -> delay y fin de delay
   useEffect(() => {
     // Termina el tiempo principal -> iniciar delay
     if (!paused && !inDelay && remain === 0 && (state.endsAt || 0) > 0 && state.endsAt !== lastEndsAtRef.current) {
       lastEndsAtRef.current = state.endsAt
       const win = (state.top || [])[0]
       if (win) { setCurrentWinner(win); setWinners(w => [{ name: win.user, total: win.total }, ...w]) }
-      delayBaseRef.current = Object.fromEntries((state.top || []).map(r=>[r.user, r.total || 0]))
+
+      // Guardar baseline y sembrar el tablero
+      const baseline = Object.fromEntries((state.top || []).map(r=>[r.user, r.total || 0]))
+      delayBaseRef.current = baseline
+      delayBaseSumRef.current = (state.top || []).reduce((a,b)=>a+(b.total||0),0)
+      setClientTop(state.top || []) // ← ya aparecen desde el primer segundo del delay
 
       setInDelay(true)
       setDelayEndsAt(Date.now() + (delayS * 1000))
-      setFrozenZero(false) // por si venía de una ronda anterior
+      setFrozenZero(false)
 
+      // Extender en backend para que cuente donaciones del delay
       postJSON(`${WS}/${room}/auction/start`, { durationSec: Math.max(1, Number(delayS)||1), title: state.title }).catch(()=>{})
     }
 
@@ -479,7 +500,8 @@ function AuctionOverlay() {
       setInDelay(false)
       setDelayEndsAt(0)
       delayBaseRef.current = null
-      setFrozenZero(true) // <<<<<< CONGELAR EN 0
+      delayBaseSumRef.current = 0
+      setFrozenZero(true)
       setShowWinner(true)
       setTimeout(() => { setShowWinner(false); setCurrentWinner(null) }, 5000)
     }
@@ -492,14 +514,16 @@ function AuctionOverlay() {
     setShowWinner(false); setCurrentWinner(null)
     setPaused(false); setInDelay(false); setDelayEndsAt(0)
     delayBaseRef.current = null
-    setFrozenZero(false) // al iniciar, liberar congelado
+    delayBaseSumRef.current = 0
+    setFrozenZero(false)
     await postJSON(`${WS}/${room}/auction/start`, { durationSec: Math.max(1, Number(seconds)||0), title: state.title })
   }
 
   const finalizeAuction = async () => {
     setPaused(false); setInDelay(false); setDelayEndsAt(0)
     delayBaseRef.current = null
-    setFrozenZero(true) // finalizar también deja en 0
+    delayBaseSumRef.current = 0
+    setFrozenZero(true)
     await postJSON(`${WS}/${room}/auction/start`, { durationSec: 1, title: state.title })
   }
 
