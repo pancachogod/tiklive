@@ -434,12 +434,8 @@ function AuctionOverlay() {
     // Se acabó el tiempo principal → arrancar delay SIN perder participantes (usamos merge)
     if (!paused && !inDelay && remain === 0 && (state.endsAt || 0) > 0 && state.endsAt !== lastEndsAtRef.current) {
       lastEndsAtRef.current = state.endsAt
-      const win = (state.top || [])[0]
-      if (win) {
-        setCurrentWinner(win)
-        setWinners(w => [{ name: win.user, total: win.total }, ...w])
-      }
-      // Snapshot base (antes de reset del backend)
+      
+      // Snapshot base (antes de reset del backend) - guardamos los totales actuales
       delayBaseRef.current = Object.fromEntries((state.top || []).map(r=>[r.user, r.total || 0]))
 
       // Iniciar delay visual y un mini-reinicio en backend para seguir contando donaciones
@@ -451,7 +447,7 @@ function AuctionOverlay() {
         .catch(err=>console.error('❌ Error extendiendo (delay):', err))
     }
 
-    // Se acabó el delay → NO reiniciar; mantener 00:00 y mostrar ganador final
+    // Se acabó el delay → Mostrar ganador final y REINICIAR todo a 0
     if (inDelay && delayRemain === 0 && delayEndsAt > 0) {
       // ganador final con totales acumulados
       const finalTop = (clientTop?.length ? clientTop : state.top) || []
@@ -460,11 +456,24 @@ function AuctionOverlay() {
         setCurrentWinner(finalWinner)
         setWinners(w => [{ name: finalWinner.user, total: finalWinner.total }, ...w])
       }
+      
+      // Reiniciar todo
       setInDelay(false)
       setDelayEndsAt(0)
       delayBaseRef.current = null
+      setClientTop([]) // Limpiar ranking acumulado
+      
+      // Mostrar ganador
       setShowWinner(true)
-      setTimeout(() => { setShowWinner(false); setCurrentWinner(null) }, 5000)
+      setTimeout(() => { 
+        setShowWinner(false)
+        setCurrentWinner(null)
+        
+        // Reiniciar el backend (resetear donaciones a 0)
+        postJSON(`${WS}/${room}/auction/reset`, {})
+          .then(()=>console.log('✅ Contador reiniciado a 0'))
+          .catch(err=>console.error('❌ Error reiniciando:', err))
+      }, 5000)
     }
 
     setTotalParticipants((inDelay ? clientTop : state.top)?.length || 0)
