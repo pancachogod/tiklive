@@ -405,8 +405,12 @@ function AuctionOverlay() {
     socketRef.current = socket
 
     socket.on('state', st => {
+      // Actualiza estado general…
       setState(prev => ({ ...prev, ...st }))
-      if (!inDelay) setClientTop(st.top || [])
+      // …y SIEMPRE sembramos clientTop con lo que mande el server
+      setClientTop(st.top || [])
+      // Si no estamos en delay, no hay baseline activo
+      if (!inDelay) { delayBaseRef.current = null; delayBaseSumRef.current = 0 }
     })
 
     socket.on('donation', d => {
@@ -432,7 +436,7 @@ function AuctionOverlay() {
           donationsTotal: delayBaseSumRef.current + (d.donationsTotal || 0)
         }))
       } else {
-        // Modo normal (sin delay): usar lo que manda el server
+        // Modo normal (sin delay): usar directamente lo que manda el server
         setClientTop(d.top || [])
         setState(prev => ({ ...prev, donationsTotal: d.donationsTotal ?? prev.donationsTotal }))
       }
@@ -472,14 +476,13 @@ function AuctionOverlay() {
     // Termina el tiempo principal -> iniciar delay
     if (!paused && !inDelay && remain === 0 && (state.endsAt || 0) > 0 && state.endsAt !== lastEndsAtRef.current) {
       lastEndsAtRef.current = state.endsAt
-      const win = (state.top || [])[0]
+      const win = (clientTop || [])[0]
       if (win) { setCurrentWinner(win); setWinners(w => [{ name: win.user, total: win.total }, ...w]) }
 
-      // Guardar baseline y sembrar el tablero
-      const baseline = Object.fromEntries((state.top || []).map(r=>[r.user, r.total || 0]))
+      // Guardar baseline y sembrar el tablero (ya está en clientTop)
+      const baseline = Object.fromEntries((clientTop || []).map(r=>[r.user, r.total || 0]))
       delayBaseRef.current = baseline
-      delayBaseSumRef.current = (state.top || []).reduce((a,b)=>a+(b.total||0),0)
-      setClientTop(state.top || []) // ← ya aparecen desde el primer segundo del delay
+      delayBaseSumRef.current = (clientTop || []).reduce((a,b)=>a+(b.total||0),0)
 
       setInDelay(true)
       setDelayEndsAt(Date.now() + (delayS * 1000))
@@ -491,7 +494,7 @@ function AuctionOverlay() {
 
     // Termina el delay -> congelar en 0, mostrar ganador, NO reiniciar
     if (inDelay && delayRemain === 0 && delayEndsAt > 0) {
-      const finalTop = (clientTop?.length ? clientTop : state.top) || []
+      const finalTop = clientTop || []
       const finalWinner = finalTop[0]
       if (finalWinner) {
         setCurrentWinner(finalWinner)
@@ -506,8 +509,8 @@ function AuctionOverlay() {
       setTimeout(() => { setShowWinner(false); setCurrentWinner(null) }, 5000)
     }
 
-    setTotalParticipants((inDelay ? clientTop : state.top)?.length || 0)
-  }, [paused, remain, state.endsAt, state.top, inDelay, delayRemain, delayEndsAt, delayS, WS, room, state.title, clientTop])
+    setTotalParticipants((clientTop)?.length || 0)
+  }, [paused, remain, state.endsAt, inDelay, delayRemain, delayEndsAt, delayS, WS, room, state.title, clientTop])
 
   // Controles
   const startAuction = async (seconds) => {
@@ -516,6 +519,7 @@ function AuctionOverlay() {
     delayBaseRef.current = null
     delayBaseSumRef.current = 0
     setFrozenZero(false)
+    setClientTop([]) // limpia la vista
     await postJSON(`${WS}/${room}/auction/start`, { durationSec: Math.max(1, Number(seconds)||0), title: state.title })
   }
 
@@ -528,7 +532,7 @@ function AuctionOverlay() {
   }
 
   const getBorderColor = (i) => ['#FFD700','#C0C0C0','#CD7F32','#0ff'][i] || '#0ff'
-  const listToRender = inDelay ? clientTop : state.top
+  const listToRender = clientTop   // ⬅️ AHORA SIEMPRE usamos clientTop
 
   return (
     <>
