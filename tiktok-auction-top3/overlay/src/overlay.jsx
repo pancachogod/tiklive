@@ -388,6 +388,13 @@ function AuctionOverlay() {
 
   // Acciones
   const startMain = async () => {
+    // Limpiar participantes ANTES de iniciar
+    try {
+      await postJSON(`${WS}/${room}/auction/clear`, {})
+    } catch {}
+    setState(prev => ({ ...prev, top: [], donationsTotal: 0 }))
+    setTotalParticipants(0)
+    
     const s = Math.max(1, Number(tInit) || 0)
     setPhase('main'); setPaused(false); setRemainingMs(s * 1000); lastTsRef.current = 0
     await postJSON(`${WS}/${room}/auction/start`, { durationSec: s, title: state.title })
@@ -401,12 +408,21 @@ function AuctionOverlay() {
   const togglePause = () => setPaused(p => !p)
   const finalize    = () => { setPhase('done'); setPaused(false); setRemainingMs(0) }
   const restart     = async () => { 
-    // Limpiar participantes al reiniciar
+    // Limpiar participantes al reiniciar (servidor + cliente)
+    try {
+      await postJSON(`${WS}/${room}/auction/clear`, {})
+    } catch {}
     setState(prev => ({ ...prev, top: [], donationsTotal: 0 }))
     setTotalParticipants(0)
     await startMain() 
   }
-  const clearParticipantsClient = () => { setState(prev => ({ ...prev, top: [], donationsTotal: 0 })); setTotalParticipants(0) }
+  const clearParticipantsClient = async () => { 
+    try {
+      await postJSON(`${WS}/${room}/auction/clear`, {})
+    } catch {}
+    setState(prev => ({ ...prev, top: [], donationsTotal: 0 }))
+    setTotalParticipants(0)
+  }
 
   // Mostrar mm:ss a partir de remainingMs
   const totalSec = Math.ceil(remainingMs / 1000)
