@@ -1043,3 +1043,50 @@ label {
   font-weight: 700;
   font-size: 16px;
 }
+
+/* ================== EXTRAS PARA EL OVERLAY NUEVO ================== */
+
+/* 1) Scroll interno en listas (Ganadores/Participantes) */
+.scrollable {
+  max-height: 300px;  /* ajusta si necesitas más/menos alto */
+  overflow: auto;
+}
+
+/* Scrollbar sutil (opcional) */
+.scrollable::-webkit-scrollbar { width: 8px; }
+.scrollable::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,.25);
+  border-radius: 6px;
+}
+.scrollable::-webkit-scrollbar-track { background: transparent; }
+
+/* 2) Rejilla de dos columnas para controles (Tiempo/Delay) */
+.fields-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+/* 3) Evitar conflicto con .badge del admin:
+   – Mantenemos los circulitos del TOP SIN padding.
+   – Limitamos el estilo "badge de admin" solo a tablas del admin. */
+.panel .badge {
+  padding: 0 !important;          /* conserva el círculo perfecto del ranking */
+  line-height: normal !important;
+}
+
+.licenses-table .badge {          /* el badge del admin (tabla de licencias/usuarios) */
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-block;
+}
+.licenses-table .badge.active  { background: #0f6; color: #000; }
+.licenses-table .badge.expired { background: #fa0; color: #000; }
+.licenses-table .badge.disabled{ background: #f44; color: #fff; }
+
+/* (Opcional) un límite al alto del panel para evitar “saltos” en pantallas bajas */
+@media (max-height: 720px) {
+  .box-body.list.scrollable { max-height: 220px; }
+}
