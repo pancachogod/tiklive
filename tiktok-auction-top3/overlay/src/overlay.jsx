@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
 import './style.css'
 
+/** URL por defecto del backend */
 const DEFAULT_WS = 'https://tiklive-production.up.railway.app'
 
 /* =================== App =================== */
@@ -361,7 +362,7 @@ function AdminPanel() {
   )
 }
 
-/* ======================= OVERLAY ======================= */
+/* ======================= OVERLAY (1 solo cronómetro) ======================= */
 function AuctionOverlay() {
   const q = useMemo(() => new URLSearchParams(location.search), [])
   const room = (q.get('room') || 'demo').trim()
@@ -378,8 +379,6 @@ function AuctionOverlay() {
   // fases: idle | main | delay | ended
   const [phase, setPhase] = useState('idle')
   const [paused, setPaused] = useState(false)
-
-  const [delayEndsAt, setDelayEndsAt] = useState(0)
   const [tInit, setTInit] = useState(60)
   const [delayS, setDelayS] = useState(10)
 
@@ -389,6 +388,7 @@ function AuctionOverlay() {
   const [currentWinner, setCurrentWinner] = useState(null)
 
   const socketRef = useRef(null)
+  const didExtendRef = useRef(false) // evita extender dos veces
   const winnersKey = useMemo(() => `Winners:${room}`, [room])
 
   useEffect(() => {
@@ -405,17 +405,18 @@ function AuctionOverlay() {
   useEffect(() => {
     const socket = io(WS, { transports:['websocket', 'polling'], query:{ room } })
     socketRef.current = socket
+
     socket.on('state', st => {
       setState(prev => ({ ...prev, ...st }))
-      // Si server dice no hay tiempo (endsAt 0) y no estamos en delay,
-      // dejamos fase como ended si ya pasó
       if (st.endsAt === 0 && phase !== 'delay') {
         setPhase('ended')
       }
     })
+
     socket.on('donation', d => {
       setState(prev => ({ ...prev, top: d.top, donationsTotal: d.donationsTotal ?? prev.donationsTotal }))
     })
+
     return () => socket.close()
   }, [WS, room, phase])
 
@@ -436,33 +437,30 @@ function AuctionOverlay() {
     })()
   }, [autoUser, WS, room])
 
-  const remainMain = Math.max(0, (state.endsAt || 0) - now)
-  const remainDelay = Math.max(0, delayEndsAt - now)
-  const remainMs = paused ? 0 : (phase === 'delay' ? remainDelay : remainMain)
-  const mm = String(Math.floor(remainMs / 1000 / 60)).padStart(2, '0')
-  const ss = String(Math.floor(remainMs / 1000) % 60).padStart(2, '0')
+  // Un solo cronómetro basado SIEMPRE en state.endsAt
+  const remain = Math.max(0, (paused ? 0 : (state.endsAt || 0) - now))
+  const mm = String(Math.floor(remain / 1000 / 60)).padStart(2, '0')
+  const ss = String(Math.floor(remain / 1000) % 60).padStart(2, '0')
 
-  // Transiciones de fase
+  // Control de fases con un solo reloj
   useEffect(() => {
     setTotalParticipants(state.top?.length || 0)
 
-    // MAIN -> DELAY
-    if (!paused && phase === 'main' && remainMain === 0 && state.endsAt > 0) {
+    // MAIN -> DELAY (una sola vez)
+    if (!paused && phase === 'main' && remain === 0 && !didExtendRef.current) {
+      didExtendRef.current = true
       const win = state.top?.[0]
       if (win) {
         setCurrentWinner(win)
         setWinners(w => [{ name: win.user, total: win.total }, ...w])
       }
       setPhase('delay')
-      const endAt = Date.now() + delayS * 1000
-      setDelayEndsAt(endAt)
-      // EXTENDER en backend para que cuenten gifts en delay
       postJSON(`${WS}/${room}/auction/extend`, { durationSec: delayS, title: state.title }).catch(()=>{})
       return
     }
 
     // DELAY -> ENDED
-    if (!paused && phase === 'delay' && remainDelay === 0 && delayEndsAt > 0) {
+    if (!paused && phase === 'delay' && remain === 0 && didExtendRef.current) {
       const finalWinner = state.top?.[0]
       if (finalWinner) {
         setCurrentWinner(finalWinner)
@@ -473,16 +471,13 @@ function AuctionOverlay() {
         })
       }
       setPhase('ended')
-      setDelayEndsAt(0)
-      // detener en backend (endsAt=0)
       postJSON(`${WS}/${room}/auction/stop`, {}).catch(()=>{})
-      // Animación más corta
       setShowWinner(true)
       setTimeout(() => { setShowWinner(false); setCurrentWinner(null) }, 2500)
     }
-  }, [paused, phase, remainMain, remainDelay, delayEndsAt, delayS, WS, room, state.title, state.endsAt, state.top])
+  }, [paused, phase, remain, delayS, WS, room, state.title, state.top])
 
-  // UI helpers
+  // Acciones
   const clearParticipantsClient = React.useCallback(() => {
     setState(prev => ({ ...prev, top: [], donationsTotal: 0 }))
     setTotalParticipants(0)
@@ -490,7 +485,8 @@ function AuctionOverlay() {
 
   const startAuction = async (seconds) => {
     setShowWinner(false); setCurrentWinner(null)
-    setPhase('main'); setDelayEndsAt(0); setPaused(false)
+    setPhase('main'); setPaused(false)
+    didExtendRef.current = false
     clearParticipantsClient()
     await postJSON(`${WS}/${room}/auction/start`, { durationSec: Math.max(1, Number(seconds)||0), title: state.title })
   }
@@ -498,9 +494,7 @@ function AuctionOverlay() {
   const finalizeAuction = async () => {
     setPaused(false)
     setPhase('ended')
-    setDelayEndsAt(0)
     await postJSON(`${WS}/${room}/auction/stop`, {})
-    // ganador final inmediato
     const finalWinner = state.top?.[0]
     if (finalWinner) {
       setCurrentWinner(finalWinner)
@@ -510,6 +504,9 @@ function AuctionOverlay() {
   }
 
   const getBorderColor = (i) => ['#FFD700','#C0C0C0','#CD7F32','#0ff'][i] || '#0ff'
+
+  const labelText = phase === 'delay' ? '⏳ TIEMPO DE DELAY' :
+                    phase === 'ended' ? 'FINALIZADO' : 'EN CURSO'
 
   return (
     <>
@@ -532,17 +529,8 @@ function AuctionOverlay() {
         <div className="panel">
           <div className="panel-container">
             <div className="timer-box">
-              {phase === 'delay' && (
-                <div className="delay-label">
-                  ⏳ TIEMPO DE DELAY - Las donaciones siguen contando
-                </div>
-              )}
+              <div className={`delay-label ${phase==='delay' ? 'is-delay' : ''}`}>{labelText}</div>
               <div className="timer">{mm}:{ss}</div>
-              {phase === 'delay' && (
-                <div className="delay-info">
-                  Ganador provisional: {currentWinner?.user || '—'} con {currentWinner?.total || 0} 💎
-                </div>
-              )}
             </div>
             <div className="board">
               {state.top.slice(0, topN).map((d, i) => (
@@ -620,7 +608,7 @@ function AuctionOverlay() {
                     <div className="btn-row">
                       <button className="btn btn-green" onClick={()=>startAuction(tInit)}>▶️ Iniciar</button>
                       <button className="btn btn-orange" onClick={()=>{
-                        if (phase === 'ended') return;
+                        if (phase === 'ended') return
                         setPaused(p=>!p)
                       }}>{paused ? '⏯ Reanudar' : '⏸ Pausar'}</button>
                     </div>
