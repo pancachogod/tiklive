@@ -1,11 +1,11 @@
+// overlay.jsx
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
 import './style.css'
 
-/** URL por defecto del backend */
 const DEFAULT_WS = 'https://tiklive-production.up.railway.app'
 
-/* =================== App =================== */
+/* =================== App (router mínimo por query) =================== */
 export default function App() {
   const q = new URLSearchParams(location.search)
   const view = (q.get('view') || '').toLowerCase()
@@ -362,7 +362,7 @@ function AdminPanel() {
   )
 }
 
-/* ======================= OVERLAY (1 solo cronómetro) ======================= */
+/* ======================= OVERLAY ======================= */
 function AuctionOverlay() {
   const q = useMemo(() => new URLSearchParams(location.search), [])
   const room = (q.get('room') || 'demo').trim()
@@ -376,19 +376,25 @@ function AuctionOverlay() {
   const [now, setNow] = useState(Date.now())
   const [dashboard, setDashboard] = useState(false)
 
-  // fases: idle | main | delay | ended
-  const [phase, setPhase] = useState('idle')
-  const [paused, setPaused] = useState(false)
+  // controles
   const [tInit, setTInit] = useState(60)
   const [delayS, setDelayS] = useState(10)
+  const [paused, setPaused] = useState(false)
 
+  // fase del único contador: 'idle' | 'main' | 'delay'
+  const [phase, setPhase] = useState('idle')
+
+  // Ganadores
   const [winners, setWinners] = useState([])
   const [totalParticipants, setTotalParticipants] = useState(0)
   const [showWinner, setShowWinner] = useState(false)
   const [currentWinner, setCurrentWinner] = useState(null)
 
   const socketRef = useRef(null)
-  const didExtendRef = useRef(false) // evita extender dos veces
+  const pauseRemainRef = useRef(0)
+  const extendedRef = useRef(false) // para extender delay una sola vez
+
+  // clave por sala para persistir ganadores
   const winnersKey = useMemo(() => `Winners:${room}`, [room])
 
   useEffect(() => {
@@ -399,37 +405,30 @@ function AuctionOverlay() {
   }, [winnersKey])
 
   useEffect(() => {
-    try { localStorage.setItem(winnersKey, JSON.stringify(winners)) } catch {}
+    try {
+      localStorage.setItem(winnersKey, JSON.stringify(winners))
+    } catch {}
   }, [winners, winnersKey])
 
   useEffect(() => {
     const socket = io(WS, { transports:['websocket', 'polling'], query:{ room } })
     socketRef.current = socket
-
-    socket.on('state', st => {
-      setState(prev => ({ ...prev, ...st }))
-      if (st.endsAt === 0 && phase !== 'delay') {
-        setPhase('ended')
-      }
-    })
-
-    socket.on('donation', d => {
-      setState(prev => ({ ...prev, top: d.top, donationsTotal: d.donationsTotal ?? prev.donationsTotal }))
-    })
-
+    
+    socket.on('state', st => setState(prev => ({ ...prev, ...st })))
+    socket.on('donation', d => setState(prev => ({ ...prev, top: d.top, donationsTotal: d.donationsTotal ?? prev.donationsTotal })))
     return () => socket.close()
-  }, [WS, room, phase])
+  }, [WS, room])
 
+  // reloj “confiable”
   useEffect(() => {
-    setNow(Date.now())
-    const id = setInterval(() => setNow(Date.now()), 100)
-    const vis = () => !document.hidden && setNow(Date.now())
-    const foc = () => setNow(Date.now())
-    document.addEventListener('visibilitychange', vis)
-    window.addEventListener('focus', foc)
-    return () => { clearInterval(id); document.removeEventListener('visibilitychange', vis); window.removeEventListener('focus', foc) }
+    const id = setInterval(() => setNow(Date.now()), 120)
+    const onFocus = () => setNow(Date.now())
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onFocus)
+    return () => { clearInterval(id); window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onFocus) }
   }, [])
 
+  // auto set de usuario desde query
   useEffect(() => {
     (async () => {
       if (!autoUser) return
@@ -437,76 +436,87 @@ function AuctionOverlay() {
     })()
   }, [autoUser, WS, room])
 
-  // Un solo cronómetro basado SIEMPRE en state.endsAt
-  const remain = Math.max(0, (paused ? 0 : (state.endsAt || 0) - now))
+  // ======= CÁLCULOS DE TIEMPO & TRANSICIONES =======
+  const remain = Math.max(0, (state.endsAt || 0) - now)
   const mm = String(Math.floor(remain / 1000 / 60)).padStart(2, '0')
   const ss = String(Math.floor(remain / 1000) % 60).padStart(2, '0')
 
-  // Control de fases con un solo reloj
   useEffect(() => {
     setTotalParticipants(state.top?.length || 0)
 
-    // MAIN -> DELAY (una sola vez)
-    if (!paused && phase === 'main' && remain === 0 && !didExtendRef.current) {
-      didExtendRef.current = true
+    // manejar fin de fase principal -> pasar a delay automático
+    if (!paused && phase === 'main' && remain === 0 && !extendedRef.current) {
+      extendedRef.current = true
       const win = state.top?.[0]
       if (win) {
         setCurrentWinner(win)
         setWinners(w => [{ name: win.user, total: win.total }, ...w])
       }
-      setPhase('delay')
-      postJSON(`${WS}/${room}/auction/extend`, { durationSec: delayS, title: state.title }).catch(()=>{})
-      return
+      // activar delay en backend sin limpiar donadores
+      postJSON(`${WS}/${room}/auction/extend`, { durationSec: Math.max(1, Number(delayS)||0), title: state.title })
+        .then(()=> { setPhase('delay') })
+        .catch(()=>{})
     }
 
-    // DELAY -> ENDED
-    if (!paused && phase === 'delay' && remain === 0 && didExtendRef.current) {
+    // manejar fin del delay -> finalizar total (contador queda en 00:00)
+    if (!paused && phase === 'delay' && remain === 0 && extendedRef.current) {
       const finalWinner = state.top?.[0]
       if (finalWinner) {
         setCurrentWinner(finalWinner)
         setWinners(w => {
-          const arr = [...w]
-          if (arr.length > 0) arr[0] = { name: finalWinner.user, total: finalWinner.total }
-          return arr
+          const nw = [...w]
+          if (nw.length > 0) nw[0] = { name: finalWinner.user, total: finalWinner.total }
+          return nw
         })
       }
-      setPhase('ended')
-      postJSON(`${WS}/${room}/auction/stop`, {}).catch(()=>{})
+      setPhase('idle')
+      extendedRef.current = false
       setShowWinner(true)
-      setTimeout(() => { setShowWinner(false); setCurrentWinner(null) }, 2500)
+      setTimeout(() => { setShowWinner(false); setCurrentWinner(null) }, 2000) // animación corta
     }
-  }, [paused, phase, remain, delayS, WS, room, state.title, state.top])
+  }, [paused, phase, remain, delayS, state.top, state.title, WS, room])
 
-  // Acciones
-  const clearParticipantsClient = React.useCallback(() => {
-    setState(prev => ({ ...prev, top: [], donationsTotal: 0 }))
-    setTotalParticipants(0)
-  }, [])
+  // ======= CONTROLES =======
+  const startAuction = async () => {
+    const secs = Math.max(1, Number(tInit) || 0)
+    extendedRef.current = false
+    setPaused(false)
+    setPhase('main')
+    setShowWinner(false)
+    setCurrentWinner(null)
+    // reinicia ranking y timer
+    await postJSON(`${WS}/${room}/auction/start`, { durationSec: secs, title: state.title })
+  }
 
-  const startAuction = async (seconds) => {
-    setShowWinner(false); setCurrentWinner(null)
-    setPhase('main'); setPaused(false)
-    didExtendRef.current = false
-    clearParticipantsClient()
-    await postJSON(`${WS}/${room}/auction/start`, { durationSec: Math.max(1, Number(seconds)||0), title: state.title })
+  const togglePause = async () => {
+    if (!paused) {
+      // pausar -> congelar tiempo restante
+      pauseRemainRef.current = Math.max(0, Math.floor(remain/1000))
+      setPaused(true)
+    } else {
+      // reanudar -> mover endsAt con lo que quedaba
+      const secs = Math.max(1, pauseRemainRef.current || 1)
+      await postJSON(`${WS}/${room}/auction/extend`, { durationSec: secs, title: state.title })
+      setPaused(false)
+    }
   }
 
   const finalizeAuction = async () => {
+    extendedRef.current = false
     setPaused(false)
-    setPhase('ended')
-    await postJSON(`${WS}/${room}/auction/stop`, {})
-    const finalWinner = state.top?.[0]
-    if (finalWinner) {
-      setCurrentWinner(finalWinner)
-      setShowWinner(true)
-      setTimeout(() => { setShowWinner(false); setCurrentWinner(null) }, 2500)
-    }
+    setPhase('idle')
+    setShowWinner(false)
+    setCurrentWinner(null)
+    await postJSON(`${WS}/${room}/auction/start`, { durationSec: 1, title: state.title })
   }
 
-  const getBorderColor = (i) => ['#FFD700','#C0C0C0','#CD7F32','#0ff'][i] || '#0ff'
+  const restartAuction = async () => {
+    // limpia participantes & arranca de nuevo con tiempo inicial
+    await startAuction()
+  }
 
-  const labelText = phase === 'delay' ? '⏳ TIEMPO DE DELAY' :
-                    phase === 'ended' ? 'FINALIZADO' : 'EN CURSO'
+  // ======= UI helpers =======
+  const getBorderColor = (i) => ['#FFD700','#C0C0C0','#CD7F32','#0ff'][i] || '#0ff'
 
   return (
     <>
@@ -520,7 +530,6 @@ function AuctionOverlay() {
             <div className="winner-title">¡GANADOR!</div>
             <div className="winner-name">{currentWinner.user}</div>
             <div className="winner-amount"><span className="diamond-icon">💎</span>{currentWinner.total} diamantes</div>
-            <div className="winner-congrats">🎉 ¡Felicidades! 🎉</div>
           </div>
         </div>
       )}
@@ -529,9 +538,9 @@ function AuctionOverlay() {
         <div className="panel">
           <div className="panel-container">
             <div className="timer-box">
-              <div className={`delay-label ${phase==='delay' ? 'is-delay' : ''}`}>{labelText}</div>
               <div className="timer">{mm}:{ss}</div>
             </div>
+
             <div className="board">
               {state.top.slice(0, topN).map((d, i) => (
                 <div className="row" key={d.user + i} style={{borderColor: getBorderColor(i)}}>
@@ -553,8 +562,8 @@ function AuctionOverlay() {
             <div className="dash-grid">
               <div className="dash-col">
                 <div className="box box-blue">
-                  <div className="box-header">🏆 GANADORES <span className="text-xs opacity-70"> (guardados por sala)</span></div>
-                  <div className="box-body list" style={{maxHeight: 260, overflowY: 'auto'}}>
+                  <div className="box-header">🏆 GANADORES <span className="text-xs opacity-70">(guardados por sala)</span></div>
+                  <div className="box-body list scrollable"> {/* scroll */}
                     {winners.length === 0 && <div className="empty">Sin ganadores</div>}
                     {winners.map((w, idx)=>(
                       <div className="winner-row" key={idx}>
@@ -582,7 +591,7 @@ function AuctionOverlay() {
               <div className="dash-col">
                 <div className="box box-green">
                   <div className="box-header">👥 PARTICIPANTES</div>
-                  <div className="box-body list" style={{maxHeight: 260, overflowY: 'auto'}}>
+                  <div className="box-body list scrollable"> {/* scroll */}
                     {state.top.length === 0 && <div className="empty">Sin participantes</div>}
                     {state.top.map((d, i)=>(
                       <div className="winner-row" key={d.user+i}>
@@ -599,27 +608,26 @@ function AuctionOverlay() {
                 <div className="box box-purple">
                   <div className="box-header">🎮 CONTROLES</div>
                   <div className="controls">
-                    <div className="fields-3">
+                    <div className="fields-2">
                       <div><label>Tiempo (s):</label><input className="input" type="number" value={tInit} onChange={e=>setTInit(Number(e.target.value)||0)} /></div>
                       <div><label>Delay (s):</label><input className="input" type="number" value={delayS} onChange={e=>setDelayS(Number(e.target.value)||0)} /></div>
-                      <div />
                     </div>
 
                     <div className="btn-row">
-                      <button className="btn btn-green" onClick={()=>startAuction(tInit)}>▶️ Iniciar</button>
-                      <button className="btn btn-orange" onClick={()=>{
-                        if (phase === 'ended') return
-                        setPaused(p=>!p)
-                      }}>{paused ? '⏯ Reanudar' : '⏸ Pausar'}</button>
+                      <button className="btn btn-green" onClick={startAuction}>▶️ Iniciar</button>
+                      <button className="btn btn-orange" onClick={togglePause}>{paused ? '⏯ Reanudar' : '⏸ Pausar'}</button>
                     </div>
-
                     <div className="btn-row">
                       <button className="btn btn-red" onClick={finalizeAuction}>🏁 Finalizar</button>
-                      <button className="btn btn-gray" onClick={()=>startAuction(tInit)}>🔁 Restart</button>
+                      <button className="btn btn-gray" onClick={restartAuction}>🔁 Restart</button>
                     </div>
 
                     <div className="btn-row" style={{marginTop:8}}>
-                      <button className="btn btn-gray" onClick={clearParticipantsClient}>🧽 Limpiar participantes (vista)</button>
+                      <button className="btn btn-gray" onClick={()=>{
+                        // limpiar solo vista (participantes)
+                        setState(prev => ({ ...prev, top: [], donationsTotal: 0 }))
+                        setTotalParticipants(0)
+                      }}>🧽 Limpiar participantes (vista)</button>
                     </div>
                   </div>
                 </div>
