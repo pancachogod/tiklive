@@ -13,15 +13,17 @@ const { Pool } = pg;
 const PORT = process.env.PORT || 8080;
 const ADMIN_KEY = process.env.ADMIN_KEY || 'pancacho123';
 
+// Orígenes permitidos (sin “/” final). Puedes ampliar por ENV (ALLOWED_ORIGINS=origen1,origen2,…)
 function parseOriginsFromEnv() {
   const raw = process.env.ALLOWED_ORIGINS || '';
   return raw.split(',').map(s => s.trim()).filter(Boolean);
 }
+
 const ORIGINS = [
   'https://tiklive-blue.vercel.app',
-  'https://tiklive-production.up.railway.app/'
-  /\.vercel\.app$/,
-  /\.railway\.app$/,
+  'https://tiklive-production.up.railway.app', // <- SIN slash final
+  /\.vercel\.app$/,   // permitir cualquier *.vercel.app
+  /\.railway\.app$/,  // permitir cualquier *.railway.app
   ...parseOriginsFromEnv(),
 ];
 
@@ -237,7 +239,7 @@ app.post('/:room/auction/start', (req, res) => {
   postJSON(res, { ok: true, auction: r.auction });
 });
 
-// NUEVO: Extender tiempo (delay) sin limpiar donadores
+// Extender tiempo (delay) sin limpiar donadores
 app.post('/:room/auction/extend', (req, res) => {
   const roomId = String(req.params.room || '').trim();
   const r = getRoom(roomId);
