@@ -13,16 +13,21 @@ const { Pool } = pg;
 const PORT = process.env.PORT || 8080;
 const ADMIN_KEY = process.env.ADMIN_KEY || 'pancacho123';
 
-// Orígenes sin slash final. Puedes ampliar con ALLOWED_ORIGINS=origen1,origen2
+// Orígenes permitidos: puedes agregar más con ALLOWED_ORIGINS (separados por coma)
 function parseOriginsFromEnv() {
   const raw = process.env.ALLOWED_ORIGINS || '';
-  return raw.split(',').map(s => s.trim()).filter(Boolean);
+  return raw
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
 }
+
+// ⚠️ NO pongas “/” final en estos orígenes
 const ORIGINS = [
-  'https://tiklive-blue.vercel.app',
-  'https://tiklive-production.up.railway.app',
-  /\.vercel\.app$/,
-  /\.railway\.app$/,
+  'https://tiklive-blue.vercel.app',               // tu front en Vercel
+  'https://tiklive-production.up.railway.app',     // si llegas a abrir la UI desde aquí
+  /\.vercel\.app$/,                                // cualquier *.vercel.app
+  /\.railway\.app$/,                               // cualquier *.railway.app
   ...parseOriginsFromEnv(),
 ];
 
@@ -41,12 +46,14 @@ const io = new Server(server, {
   transports: ['websocket', 'polling'],
 });
 
-/* ================== DB (Postgres) ================== */
+/* ================== POSTGRESQL ================== */
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false, require: true },
-  connectionTimeoutMillis: 30000,
-  idleTimeoutMillis: 30000,
+  ssl: process.env.DATABASE_URL
+    ? { rejectUnauthorized: false, require: true }
+    : undefined,
+  connectionTimeoutMillis: 30_000,
+  idleTimeoutMillis: 30_000,
   max: 5,
   allowExitOnIdle: false
 });
@@ -84,7 +91,7 @@ async function initDatabase() {
 }
 initDatabase();
 
-/* ================== SUBASTAS (multi-room) ================== */
+/* ================== SUBASTA MULTI-ROOM ================== */
 const rooms = new Map();
 const ROOM_IDLE_MS = 60 * 60 * 1000;
 const now = () => Date.now();
@@ -94,7 +101,7 @@ function newRoom(roomId) {
     id: roomId,
     user: (process.env.TIKTOK_USER || 'sticx33').trim(),
     auction: { title: 'Subasta', endsAt: 0, donationsTotal: 0, top: [] },
-    donors: new Map(), // username -> { total, avatar }
+    donors: new Map(), // Map(username -> { total, avatar })
     tiktok: null,
     reconnectTimer: null,
     lastActivity: now(),
@@ -108,6 +115,7 @@ function getRoom(roomId) {
 }
 const isRunning = (r) => Number(r.auction.endsAt) > now();
 
+/** recalcula ranking y emite por socket */
 function emitDonation(r) {
   r.auction.top = [...r.donors.entries()]
     .map(([u, v]) => ({ user: u, total: v.total, avatar: v.avatar }))
@@ -144,11 +152,11 @@ async function connectLoop(r) {
 
     if (r.reconnectTimer) { clearInterval(r.reconnectTimer); r.reconnectTimer = null; }
 
+    // ⚠️ Contamos regalos SIEMPRE que endsAt>now() (tiempo normal y delay)
     r.tiktok.on('gift', data => {
-      // Cuenta SOLO si hay una subasta activa (normal o delay) -> endsAt > now()
       if (!isRunning(r)) return;
 
-      // giftType 1 en curso sin repeatEnd = multitoque; esperamos el cierre
+      // giftType 1 en modo multitoque: solo contar al finalizar el burst
       if (data?.giftType === 1 && !data?.repeatEnd) return;
 
       const user   = data?.nickname || data?.uniqueId || 'Anónimo';
@@ -177,7 +185,7 @@ async function connectLoop(r) {
   }
 }
 
-// Limpieza y heartbeat
+// Limpieza de rooms inactivos
 setInterval(() => {
   const cutoff = now() - ROOM_IDLE_MS;
   for (const [id, r] of rooms) {
@@ -190,6 +198,7 @@ setInterval(() => {
   }
 }, 10 * 60 * 1000);
 
+// Heartbeat de estado (cuando termina el tiempo)
 setInterval(() => {
   for (const r of rooms.values()) {
     if (!isRunning(r) && r.auction.endsAt !== 0) {
@@ -202,9 +211,9 @@ setInterval(() => {
 const postJSON = (res, data)=>res.json(data);
 function normalizeUsername(u) { return String(u || '').trim().toLowerCase().replace(/^@+/, ''); }
 
-/* ================== ENDPOINTS SALA ================== */
+/* ================== ENDPOINTS DE SALA ================== */
 
-// Cambiar usuario tiktok
+// Cambiar usuario tiktok de la sala
 app.post('/:room/user', (req, res) => {
   const roomId = String(req.params.room || '').trim();
   const r = getRoom(roomId);
@@ -222,7 +231,7 @@ app.post('/:room/user', (req, res) => {
   postJSON(res, { ok: true, user: r.user });
 });
 
-// Iniciar subasta (limpia ranking)
+// Iniciar nueva subasta (tiempo normal) — limpia ranking
 app.post('/:room/auction/start', (req, res) => {
   const roomId = String(req.params.room || '').trim();
   const r = getRoom(roomId);
@@ -239,7 +248,7 @@ app.post('/:room/auction/start', (req, res) => {
   postJSON(res, { ok: true, auction: r.auction });
 });
 
-// Extender tiempo (delay) SIN limpiar donadores
+// Extender tiempo (delay) — NO limpia ranking
 app.post('/:room/auction/extend', (req, res) => {
   const roomId = String(req.params.room || '').trim();
   const r = getRoom(roomId);
@@ -247,12 +256,12 @@ app.post('/:room/auction/extend', (req, res) => {
   const dur = Math.max(1, Number(durationSec) || 10);
   if (title) r.auction.title = String(title);
 
-  r.auction.endsAt = now() + dur * 1000; // sólo movemos endsAt
+  r.auction.endsAt = now() + dur * 1000;
   io.to(r.id).emit('state', r.auction);
   postJSON(res, { ok: true, auction: r.auction });
 });
 
-// Detener subasta (deja endsAt=0, NO limpia ranking)
+// Parar — deja endsAt=0 (el overlay mostrará 00:00 y “finalizado”)
 app.post('/:room/auction/stop', (req, res) => {
   const roomId = String(req.params.room || '').trim();
   const r = getRoom(roomId);
@@ -261,7 +270,7 @@ app.post('/:room/auction/stop', (req, res) => {
   postJSON(res, { ok: true, auction: r.auction });
 });
 
-// Estado
+// Estado/consulta
 app.get('/:room/auction', (req, res) => {
   const r = getRoom(String(req.params.room || '').trim());
   postJSON(res, r.auction);
@@ -279,7 +288,7 @@ app.get('/:room/status', (req, res) => {
   });
 });
 
-// Debug: simular gift
+// Debug: simular regalo
 app.post('/:room/debug/gift', (req, res) => {
   const r = getRoom(String(req.params.room || '').trim());
   const { user='Tester', avatar='', diamonds=50 } = req.body || {};
@@ -293,7 +302,7 @@ app.post('/:room/debug/gift', (req, res) => {
   postJSON(res, { ok: true, top: r.auction.top });
 });
 
-/* ================== USUARIOS (licencias) ================== */
+/* ================== SISTEMA DE USUARIOS ================== */
 app.post('/user/verify', async (req, res) => {
   const tiktokUser = normalizeUsername(req.body?.tiktokUser);
   if (!tiktokUser) return res.status(400).json({ ok: false, error: 'user-required' });
@@ -312,7 +321,12 @@ app.post('/user/verify', async (req, res) => {
     }
 
     await pool.query('UPDATE users SET last_used = $1, usage_count = usage_count + 1 WHERE tiktok_user = $2', [t, tiktokUser]);
-    res.json({ ok: true, tiktokUser: user.tiktok_user, expiresAt: user.expires_at, daysRemaining: Math.ceil((user.expires_at - t) / 86400000) });
+    res.json({
+      ok: true,
+      tiktokUser: user.tiktok_user,
+      expiresAt: user.expires_at,
+      daysRemaining: Math.ceil((user.expires_at - t) / 86400000)
+    });
   } catch (err) {
     console.error('Error verificando usuario:', err);
     res.status(500).json({ ok: false, error: 'database-error' });
@@ -325,6 +339,7 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+// Stats para Panel Admin
 app.get('/admin/stats', requireAdmin, async (_req, res) => {
   try {
     const q = `
@@ -357,8 +372,10 @@ app.post('/admin/user/activate', requireAdmin, async (req, res) => {
       const baseTime = user.status === 'expired' ? t : Math.max(user.expires_at, t);
       const newExpiresAt = baseTime + days * 86400000;
       const newDaysActive = Math.ceil((newExpiresAt - t) / 86400000);
-      await pool.query('UPDATE users SET expires_at = $1, days_active = $2, status = $3 WHERE tiktok_user = $4',
-        [newExpiresAt, newDaysActive, 'active', tiktokUser]);
+      await pool.query(
+        'UPDATE users SET expires_at = $1, days_active = $2, status = $3 WHERE tiktok_user = $4',
+        [newExpiresAt, newDaysActive, 'active', tiktokUser]
+      );
     } else {
       const expiresAt = t + days * 86400000;
       await pool.query(
@@ -368,7 +385,15 @@ app.post('/admin/user/activate', requireAdmin, async (req, res) => {
     }
     const updated = await pool.query('SELECT * FROM users WHERE tiktok_user = $1', [tiktokUser]);
     const u = updated.rows[0];
-    res.json({ ok: true, user: { tiktokUser: u.tiktok_user, daysActive: u.days_active, expiresAt: u.expires_at, status: u.status } });
+    res.json({
+      ok: true,
+      user: {
+        tiktokUser: u.tiktok_user,
+        daysActive: u.days_active,
+        expiresAt: u.expires_at,
+        status: u.status
+      }
+    });
   } catch (err) {
     console.error('Error activando usuario:', err);
     res.status(500).json({ ok: false, error: 'database-error' });
@@ -432,7 +457,10 @@ app.get('/admin/user/:tiktokUser', requireAdmin, async (req, res) => {
 app.post('/admin/user/:tiktokUser/disable', requireAdmin, async (req, res) => {
   const tiktokUser = normalizeUsername(req.params.tiktokUser);
   try {
-    const result = await pool.query('UPDATE users SET status = $1 WHERE tiktok_user = $2 RETURNING *', ['disabled', tiktokUser]);
+    const result = await pool.query(
+      'UPDATE users SET status = $1 WHERE tiktok_user = $2 RETURNING *',
+      ['disabled', tiktokUser]
+    );
     if (result.rows.length === 0) return res.status(404).json({ ok: false, error: 'not-found' });
     res.json({ ok: true, message: 'User disabled' });
   } catch (err) {
@@ -468,6 +496,7 @@ io.on('connection', (socket) => {
 
 app.get('/health', (_req, res) => res.send('ok'));
 
+/* ================== START ================== */
 server.listen(PORT, () => {
   console.log(`🚀 Backend on :${PORT}`);
   console.log(`🔑 Admin key: ${ADMIN_KEY ? '(set)' : '(not set)'}`);
