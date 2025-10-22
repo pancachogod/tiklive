@@ -1,29 +1,32 @@
-// overlay.jsx
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
 import './style.css'
 
 const DEFAULT_WS = 'https://tiklive-production.up.railway.app'
 
-/* =================== App (router mínimo por query) =================== */
 export default function App() {
   const q = new URLSearchParams(location.search)
   const view = (q.get('view') || '').toLowerCase()
   const room = (q.get('room') || '').trim()
 
-  if (view === 'admin') return <AdminPanel />
+  if (view === 'admin') {
+    return (
+      <div className="wizard">
+        <div className="w-card">
+          <h2>Admin mínimo</h2>
+          <div className="w-hint">Usa tu panel existente.</div>
+        </div>
+      </div>
+    )
+  }
   if (!room) return <RoomWizard />
-  return (
-    <OverlayWithUser>
-      <AuctionOverlay />
-    </OverlayWithUser>
-  )
+  return <OverlayWithUser><AuctionOverlay /></OverlayWithUser>
 }
 
-/* ============== Verificación por Usuario TikTok ============== */
+/* ============== Gate por usuario TikTok (mínimo) ============== */
 function OverlayWithUser({ children }) {
   const q = new URLSearchParams(location.search)
-  const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || DEFAULT_WS
+  const RAW_WS = q.get('ws') || import.meta.env?.VITE_WS_URL || DEFAULT_WS
   const WS = sanitizeBaseUrl(RAW_WS)
   const [ok, setOk] = useState(false)
   const [busy, setBusy] = useState(true)
@@ -65,12 +68,10 @@ function OverlayWithUser({ children }) {
           const error = data?.error || 'invalid'
           if (error === 'subscription-expired') setMsg('Tu suscripción ha expirado.')
           else if (error === 'user-disabled') setMsg('Usuario desactivado.')
-          else if (error === 'user-not-found') setMsg('Usuario no encontrado. Contacta al administrador.')
+          else if (error === 'user-not-found') setMsg('Usuario no encontrado.')
           else setMsg('No tienes acceso.')
         }
-      } catch { 
-        setMsg('No se pudo contactar con el servidor.') 
-      }
+      } catch { setMsg('No se pudo contactar con el servidor.') }
     }
     return (
       <div className="gate">
@@ -83,7 +84,6 @@ function OverlayWithUser({ children }) {
           {msg && <div className="g-msg">{msg}</div>}
           <div className="g-actions">
             <button className="g-primary" type="submit">Verificar</button>
-            <a className="g-ghost" href="https://t.me/+ae-ctGPi8sM1MTYx" target="_blank" rel="noreferrer">Obtener acceso</a>
           </div>
         </form>
       </div>
@@ -101,272 +101,11 @@ function OverlayWithUser({ children }) {
   )
 }
 
-/* ======================= ADMIN PANEL ======================= */
-function AdminPanel() {
-  const q = new URLSearchParams(location.search)
-  const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || DEFAULT_WS
-  const WS = sanitizeBaseUrl(RAW_WS)
-
-  const [adminKey, setAdminKey] = useState('')
-  const [authenticated, setAuthenticated] = useState(false)
-  const [msg, setMsg] = useState('')
-  const [view, setView] = useState('dashboard')
-  const [stats, setStats] = useState(null)
-  const [users, setUsers] = useState([])
-  const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState('all')
-  const [selectedUser, setSelectedUser] = useState(null)
-  const [newUser, setNewUser] = useState('')
-  const [days, setDays] = useState(30)
-
-  const checkAuth = async (e) => {
-    e?.preventDefault?.()
-    setMsg('')
-    try {
-      const res = await fetch(`${WS}/admin/stats`, {
-        headers: { 'x-admin-key': adminKey }
-      })
-      if (res.ok) {
-        setAuthenticated(true)
-        await loadStats()
-      } else {
-        setMsg('Admin Key incorrecta')
-      }
-    } catch {
-      setMsg('Error de conexión')
-    }
-  }
-
-  const loadStats = async () => {
-    try {
-      const res = await fetch(`${WS}/admin/stats`, {
-        headers: { 'x-admin-key': adminKey }
-      })
-      const data = await res.json().catch(()=>({}))
-      if (data?.ok) setStats(data.stats)
-    } catch {}
-  }
-
-  const loadUsers = async () => {
-    try {
-      const params = new URLSearchParams()
-      if (filter !== 'all') params.set('status', filter)
-      if (search) params.set('search', search)
-      const res = await fetch(`${WS}/admin/user/list?${params.toString()}`, {
-        headers: { 'x-admin-key': adminKey }
-      })
-      const data = await res.json().catch(()=>({}))
-      if (data?.ok) setUsers(data.users || [])
-    } catch {}
-  }
-
-  const activateUser = async () => {
-    setMsg('')
-    const u = (newUser || '').trim().replace(/^@+/, '')
-    if (!u) { setMsg('Ingresa un usuario'); return }
-    if (days < 1) { setMsg('Los días deben ser mayor a 0'); return }
-    try {
-      const res = await fetch(`${WS}/admin/user/activate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-admin-key': adminKey },
-        body: JSON.stringify({ tiktokUser: u, days })
-      })
-      const data = await res.json().catch(()=>({}))
-      if (data?.ok) {
-        alert(`✅ Usuario @${u} activado por ${days} días`)
-        setNewUser('')
-        setDays(30)
-        loadStats()
-        if (view === 'list') loadUsers()
-      } else {
-        setMsg(data?.error || 'Error')
-      }
-    } catch {
-      setMsg('Error de red')
-    }
-  }
-
-  const viewDetails = async (tiktokUser) => {
-    try {
-      const res = await fetch(`${WS}/admin/user/${tiktokUser}`, {
-        headers: { 'x-admin-key': adminKey }
-      })
-      const data = await res.json().catch(()=>({}))
-      if (data?.ok) {
-        setSelectedUser(data.user)
-        setView('details')
-      }
-    } catch {}
-  }
-
-  const disableUser = async (tiktokUser) => {
-    if (!confirm(`¿Desactivar a @${tiktokUser}?`)) return
-    try {
-      const res = await fetch(`${WS}/admin/user/${tiktokUser}/disable`, {
-        method: 'POST',
-        headers: { 'x-admin-key': adminKey }
-      })
-      if (res.ok) {
-        alert('Usuario desactivado')
-        if (view === 'details') viewDetails(tiktokUser)
-        if (view === 'list') loadUsers()
-        loadStats()
-      }
-    } catch {}
-  }
-
-  const enableUser = async (tiktokUser) => {
-    try {
-      const res = await fetch(`${WS}/admin/user/${tiktokUser}/enable`, {
-        method: 'POST',
-        headers: { 'x-admin-key': adminKey }
-      })
-      if (res.ok) {
-        alert('Usuario reactivado')
-        if (view === 'details') viewDetails(tiktokUser)
-        if (view === 'list') loadUsers()
-        loadStats()
-      }
-    } catch {}
-  }
-
-  const deleteUser = async (tiktokUser) => {
-    if (!confirm(`¿Eliminar a @${tiktokUser}? Esta acción no se puede deshacer.`)) return
-    try {
-      const res = await fetch(`${WS}/admin/user/${tiktokUser}/delete`, {
-        method: 'POST',
-        headers: { 'x-admin-key': adminKey }
-      })
-      if (res.ok) {
-        alert('Usuario eliminado')
-        if (view === 'details') { setView('list'); setSelectedUser(null) }
-        loadUsers()
-        loadStats()
-      }
-    } catch {}
-  }
-
-  if (!authenticated) {
-    return (
-      <div className="gate">
-        <form className="g-card" onSubmit={checkAuth}>
-          <div className="g-title">🔒 Panel Admin</div>
-          <div className="g-subtitle">Backend: {WS}</div>
-          <div className="g-field">
-            <input 
-              type="password"
-              value={adminKey} 
-              onChange={e=>setAdminKey(e.target.value)} 
-              placeholder="ADMIN_KEY" 
-            />
-          </div>
-          {msg && <div className="g-msg">{msg}</div>}
-          <div className="g-actions">
-            <button className="g-primary" type="submit">Acceder</button>
-            <a className="g-ghost" href={`/?ws=${encodeURIComponent(WS)}`}>Volver</a>
-          </div>
-        </form>
-      </div>
-    )
-  }
-
-  return (
-    <div className="wizard">
-      <div className="w-card" style={{maxWidth: 940}}>
-        <h2>Admin Panel</h2>
-        <div className="tabs">
-          <button className={`tab-btn ${view==='dashboard'?'active':''}`} onClick={()=>{setView('dashboard'); loadStats()}}>Dashboard</button>
-          <button className={`tab-btn ${view==='list'?'active':''}`} onClick={()=>{setView('list'); loadUsers()}}>Usuarios</button>
-          <button className={`tab-btn ${view==='activate'?'active':''}`} onClick={()=>setView('activate')}>Activar</button>
-        </div>
-
-        {view==='dashboard' && (
-          <div className="grid-3">
-            <div className="stat"><div className="stat-title">Activos</div><div className="stat-value">{stats?.active ?? '-'}</div></div>
-            <div className="stat"><div className="stat-title">Expirados</div><div className="stat-value">{stats?.expired ?? '-'}</div></div>
-            <div className="stat"><div className="stat-title">Deshabilitados</div><div className="stat-value">{stats?.disabled ?? '-'}</div></div>
-            <div className="w-actions" style={{gridColumn:'1 / -1'}}>
-              <button className="w-primary" onClick={loadStats}>Refrescar</button>
-              <a className="w-success" href={`/?ws=${encodeURIComponent(WS)}`}>Ir al Wizard</a>
-            </div>
-          </div>
-        )}
-
-        {view==='list' && (
-          <>
-            <div className="w-row" style={{gap:8}}>
-              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar..." />
-              <select value={filter} onChange={e=>setFilter(e.target.value)}>
-                <option value="all">Todos</option>
-                <option value="active">Activos</option>
-                <option value="expired">Expirados</option>
-                <option value="disabled">Deshabilitados</option>
-              </select>
-              <button className="w-btn" onClick={loadUsers}>Buscar</button>
-            </div>
-            <div className="list-table" style={{marginTop:12}}>
-              {users.length===0 && <div className="w-hint">Sin resultados</div>}
-              {users.map(u=>(
-                <div key={u.tiktokUser} className="row-lite">
-                  <div className="cell">@{u.tiktokUser}</div>
-                  <div className="cell">Estado: {u.status}</div>
-                  <div className="cell">Días: {u.daysRemaining ?? '-'}</div>
-                  <div className="cell actions">
-                    <button className="w-btn" onClick={()=>viewDetails(u.tiktokUser)}>Detalles</button>
-                    {u.status==='disabled'
-                      ? <button className="w-success" onClick={()=>enableUser(u.tiktokUser)}>Habilitar</button>
-                      : <button className="w-btn" onClick={()=>disableUser(u.tiktokUser)}>Deshabilitar</button>}
-                    <button className="w-danger" onClick={()=>deleteUser(u.tiktokUser)}>Eliminar</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-
-        {view==='activate' && (
-          <>
-            <div className="w-field">
-              <label>Usuario TikTok (sin @)</label>
-              <input value={newUser} onChange={e=>setNewUser(e.target.value)} placeholder="usuario123" />
-            </div>
-            <div className="w-field">
-              <label>Días de acceso</label>
-              <input type="number" min="1" value={days} onChange={e=>setDays(Number(e.target.value)||1)} />
-            </div>
-            {msg && <div className="w-hint" style={{color:'#ff6'}}>{msg}</div>}
-            <div className="w-actions">
-              <button className="w-primary" onClick={activateUser}>Activar</button>
-              <button className="w-btn" onClick={()=>{setNewUser(''); setDays(30)}}>Limpiar</button>
-            </div>
-          </>
-        )}
-
-        {view==='details' && selectedUser && (
-          <div className="detail-card">
-            <h3>@{selectedUser.tiktokUser}</h3>
-            <div className="w-hint">Estado: {selectedUser.status}</div>
-            <div className="w-hint">Días restantes: {selectedUser.daysRemaining ?? '-'}</div>
-            <div className="w-hint">Expira: {selectedUser.expiresAt ? new Date(selectedUser.expiresAt).toLocaleString() : '-'}</div>
-            <div className="w-row" style={{gap:8, marginTop:12}}>
-              {selectedUser.status==='disabled'
-                ? <button className="w-success" onClick={()=>enableUser(selectedUser.tiktokUser)}>Habilitar</button>
-                : <button className="w-btn" onClick={()=>disableUser(selectedUser.tiktokUser)}>Deshabilitar</button>}
-              <button className="w-danger" onClick={()=>deleteUser(selectedUser.tiktokUser)}>Eliminar</button>
-              <button className="w-btn" onClick={()=>setView('list')}>Volver</button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
 /* ======================= OVERLAY ======================= */
 function AuctionOverlay() {
   const q = useMemo(() => new URLSearchParams(location.search), [])
   const room = (q.get('room') || 'demo').trim()
-  const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || DEFAULT_WS
+  const RAW_WS = q.get('ws') || import.meta.env?.VITE_WS_URL || DEFAULT_WS
   const WS = sanitizeBaseUrl(RAW_WS)
   const initialTitle = q.get('title') || 'Subasta'
   const autoUser = (q.get('autouser') || '').replace(/^@+/, '').trim()
@@ -374,61 +113,38 @@ function AuctionOverlay() {
 
   const [state, setState] = useState({ title: initialTitle, endsAt: 0, top: [], donationsTotal: 0 })
   const [now, setNow] = useState(Date.now())
-  const [dashboard, setDashboard] = useState(false)
 
   // controles
-  const [tInit, setTInit] = useState(60)
-  const [delayS, setDelayS] = useState(10)
+  const [tInit, setTInit] = useState(60)   // tiempo principal
+  const [delayS, setDelayS] = useState(10) // delay
   const [paused, setPaused] = useState(false)
-
-  // fase del único contador: 'idle' | 'main' | 'delay'
-  const [phase, setPhase] = useState('idle')
-
-  // Ganadores
-  const [winners, setWinners] = useState([])
-  const [totalParticipants, setTotalParticipants] = useState(0)
+  const [inDelay, setInDelay] = useState(false)
   const [showWinner, setShowWinner] = useState(false)
   const [currentWinner, setCurrentWinner] = useState(null)
 
   const socketRef = useRef(null)
-  const pauseRemainRef = useRef(0)
-  const extendedRef = useRef(false) // para extender delay una sola vez
+  const alreadyExtendedRef = useRef(false)
+  const startedRef = useRef(false)
 
-  // clave por sala para persistir ganadores
-  const winnersKey = useMemo(() => `Winners:${room}`, [room])
-
+  // socket
   useEffect(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(winnersKey) || '[]')
-      if (Array.isArray(saved)) setWinners(saved)
-    } catch {}
-  }, [winnersKey])
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(winnersKey, JSON.stringify(winners))
-    } catch {}
-  }, [winners, winnersKey])
-
-  useEffect(() => {
-    const socket = io(WS, { transports:['websocket', 'polling'], query:{ room } })
+    const socket = io(WS, { transports:['websocket','polling'], query:{ room } })
     socketRef.current = socket
-    
-    socket.on('state', st => setState(prev => ({ ...prev, ...st })))
-    socket.on('donation', d => setState(prev => ({ ...prev, top: d.top, donationsTotal: d.donationsTotal ?? prev.donationsTotal })))
+
+    socket.on('state', st => { setState(prev => ({ ...prev, ...st })) })
+    socket.on('donation', d => {
+      setState(prev => ({ ...prev, top: d.top, donationsTotal: d.donationsTotal ?? prev.donationsTotal }))
+    })
     return () => socket.close()
   }, [WS, room])
 
-  // reloj “confiable”
+  // reloj
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 120)
-    const onFocus = () => setNow(Date.now())
-    window.addEventListener('focus', onFocus)
-    document.addEventListener('visibilitychange', onFocus)
-    return () => { clearInterval(id); window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onFocus) }
+    const id = setInterval(() => setNow(Date.now()), 100)
+    return () => clearInterval(id)
   }, [])
 
-  // auto set de usuario desde query
+  // autouser opcional
   useEffect(() => {
     (async () => {
       if (!autoUser) return
@@ -436,91 +152,68 @@ function AuctionOverlay() {
     })()
   }, [autoUser, WS, room])
 
-  // ======= CÁLCULOS DE TIEMPO & TRANSICIONES =======
   const remain = Math.max(0, (state.endsAt || 0) - now)
-  const mm = String(Math.floor(remain / 1000 / 60)).padStart(2, '0')
-  const ss = String(Math.floor(remain / 1000) % 60).padStart(2, '0')
+  const mm = String(Math.floor((paused ? 0 : remain) / 1000 / 60)).padStart(2, '0')
+  const ss = String(Math.floor((paused ? 0 : remain) / 1000) % 60).padStart(2, '0')
 
+  // lógica: pasar a delay automáticamente y finalizar al terminar delay
   useEffect(() => {
-    setTotalParticipants(state.top?.length || 0)
-
-    // manejar fin de fase principal -> pasar a delay automático
-    if (!paused && phase === 'main' && remain === 0 && !extendedRef.current) {
-      extendedRef.current = true
-      const win = state.top?.[0]
-      if (win) {
-        setCurrentWinner(win)
-        setWinners(w => [{ name: win.user, total: win.total }, ...w])
+    if (paused) return
+    if (!startedRef.current) return
+    if (remain === 0 && state.endsAt > 0) {
+      if (!inDelay && !alreadyExtendedRef.current) {
+        // Entrar al delay (una sola vez)
+        alreadyExtendedRef.current = true
+        setInDelay(true)
+        postJSON(`${WS}/${room}/auction/extend`, { durationSec: Math.max(1, Number(delayS)||0), title: state.title })
+          .catch(()=>{})
+      } else if (inDelay) {
+        // Delay terminado -> parar y limpiar
+        finishClean()
       }
-      // activar delay en backend sin limpiar donadores
-      postJSON(`${WS}/${room}/auction/extend`, { durationSec: Math.max(1, Number(delayS)||0), title: state.title })
-        .then(()=> { setPhase('delay') })
-        .catch(()=>{})
     }
+  }, [remain, paused, inDelay, delayS, WS, room, state.endsAt, state.title])
 
-    // manejar fin del delay -> finalizar total (contador queda en 00:00)
-    if (!paused && phase === 'delay' && remain === 0 && extendedRef.current) {
-      const finalWinner = state.top?.[0]
-      if (finalWinner) {
-        setCurrentWinner(finalWinner)
-        setWinners(w => {
-          const nw = [...w]
-          if (nw.length > 0) nw[0] = { name: finalWinner.user, total: finalWinner.total }
-          return nw
-        })
-      }
-      setPhase('idle')
-      extendedRef.current = false
-      setShowWinner(true)
-      setTimeout(() => { setShowWinner(false); setCurrentWinner(null) }, 2000) // animación corta
-    }
-  }, [paused, phase, remain, delayS, state.top, state.title, WS, room])
+  async function finishClean() {
+    setInDelay(false)
+    setShowWinner(false)
+    setCurrentWinner(null)
+    startedRef.current = false
+    alreadyExtendedRef.current = false
+    await postJSON(`${WS}/${room}/auction/stop`, {})
+  }
 
-  // ======= CONTROLES =======
+  // helpers UI
   const startAuction = async () => {
-    const secs = Math.max(1, Number(tInit) || 0)
-    extendedRef.current = false
-    setPaused(false)
-    setPhase('main')
+    const dur = Math.max(1, Number(tInit)||0)
+    startedRef.current = true
+    alreadyExtendedRef.current = false
+    setInDelay(false)
     setShowWinner(false)
     setCurrentWinner(null)
-    // reinicia ranking y timer
-    await postJSON(`${WS}/${room}/auction/start`, { durationSec: secs, title: state.title })
-  }
-
-  const togglePause = async () => {
-    if (!paused) {
-      // pausar -> congelar tiempo restante
-      pauseRemainRef.current = Math.max(0, Math.floor(remain/1000))
-      setPaused(true)
-    } else {
-      // reanudar -> mover endsAt con lo que quedaba
-      const secs = Math.max(1, pauseRemainRef.current || 1)
-      await postJSON(`${WS}/${room}/auction/extend`, { durationSec: secs, title: state.title })
-      setPaused(false)
-    }
-  }
-
-  const finalizeAuction = async () => {
-    extendedRef.current = false
     setPaused(false)
-    setPhase('idle')
-    setShowWinner(false)
-    setCurrentWinner(null)
-    await postJSON(`${WS}/${room}/auction/start`, { durationSec: 1, title: state.title })
+    // optimista: avanzar reloj de inmediato
+    setState(prev => ({ ...prev, endsAt: Date.now() + dur * 1000, title: prev.title, top: [], donationsTotal: 0 }))
+    try { await postJSON(`${WS}/${room}/auction/start`, { durationSec: dur, title: state.title }) } catch {}
   }
 
-  const restartAuction = async () => {
-    // limpia participantes & arranca de nuevo con tiempo inicial
-    await startAuction()
-  }
+  const pauseToggle = () => setPaused(p => !p)
 
-  // ======= UI helpers =======
+  const finalizeAuction = async () => { await finishClean() }
+
+  const restartAuction = async () => { await startAuction() }
+
   const getBorderColor = (i) => ['#FFD700','#C0C0C0','#CD7F32','#0ff'][i] || '#0ff'
 
   return (
     <>
-      <button className="gear-floating" onClick={()=>setDashboard(true)}>⚙️</button>
+      <button
+        className="gear-floating"
+        onClick={()=>document.querySelector('.dash-wrap')?.classList?.toggle('hidden')}
+        title="Abrir controles"
+      >
+        ⚙️
+      </button>
 
       {showWinner && currentWinner && (
         <div className="winner-screen">
@@ -530,113 +223,60 @@ function AuctionOverlay() {
             <div className="winner-title">¡GANADOR!</div>
             <div className="winner-name">{currentWinner.user}</div>
             <div className="winner-amount"><span className="diamond-icon">💎</span>{currentWinner.total} diamantes</div>
+            <div className="winner-congrats">🎉 ¡Felicidades! 🎉</div>
           </div>
         </div>
       )}
 
-      {!showWinner && (
-        <div className="panel">
-          <div className="panel-container">
-            <div className="timer-box">
-              <div className="timer">{mm}:{ss}</div>
-            </div>
+      <div className="panel">
+        <div className="panel-container">
+          <div className="timer-box">
+            {inDelay && <div className="delay-label">Tiempo de delay</div>}
+            <div className="timer">{mm}:{ss}</div>
+          </div>
 
-            <div className="board">
-              {state.top.slice(0, topN).map((d, i) => (
-                <div className="row" key={d.user + i} style={{borderColor: getBorderColor(i)}}>
-                  <div className={`badge ${i===1?'silver':i===2?'bronze':''}`}>{i+1}</div>
-                  <img className="avatar" src={d.avatar || ''} alt="" />
-                  <div className="name" title={d.user}>{d.user}</div>
-                  <div className="coin">💎 {d.total}</div>
+          <div className="board">
+            {state.top.slice(0, topN).map((d, i) => (
+              <div className="row" key={d.user + i} style={{borderColor: getBorderColor(i)}}>
+                <div className={`badge ${i===1?'silver':i===2?'bronze':''}`}>{i+1}</div>
+                <img className="avatar" src={d.avatar || ''} alt="" />
+                <div className="name" title={d.user}>{d.user}</div>
+                <div className="coin">💎 {d.total}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Dashboard de controles */}
+      <div className="dash-wrap hidden" onClick={e=>e.currentTarget.classList.add('hidden')}>
+        <div className="dash-card" onClick={e=>e.stopPropagation()}>
+          <div className="box box-purple" style={{minHeight: 'auto'}}>
+            <div className="box-header">🎮 CONTROLES</div>
+            <div className="controls">
+              <div className="fields-2">
+                <div>
+                  <label>Tiempo (s)</label>
+                  <input className="input" type="number" min="1" value={tInit} onChange={e=>setTInit(+e.target.value||1)} />
                 </div>
-              ))}
+                <div>
+                  <label>Delay (s)</label>
+                  <input className="input" type="number" min="1" value={delayS} onChange={e=>setDelayS(+e.target.value||1)} />
+                </div>
+              </div>
+              <div className="btn-row">
+                <button className="btn btn-green" onClick={startAuction}>▶️ Iniciar</button>
+                <button className="btn btn-orange" onClick={pauseToggle}>{paused ? '⏯ Reanudar' : '⏸ Pausar'}</button>
+              </div>
+              <div className="btn-row">
+                <button className="btn btn-red" onClick={finalizeAuction}>🏁 Finalizar</button>
+                <button className="btn btn-gray" onClick={restartAuction}>🔁 Restart</button>
+              </div>
+              <div className="box-footer">Diamantes: {state.donationsTotal || 0}</div>
             </div>
           </div>
         </div>
-      )}
-
-      {dashboard && (
-        <div className="dash-wrap" onClick={()=>setDashboard(false)}>
-          <div className="dash-card" onClick={e=>e.stopPropagation()}>
-            <div className="dash-tabs"><div className="tab active">🎮 Control</div></div>
-            <div className="dash-grid">
-              <div className="dash-col">
-                <div className="box box-blue">
-                  <div className="box-header">🏆 GANADORES <span className="text-xs opacity-70">(guardados por sala)</span></div>
-                  <div className="box-body list scrollable"> {/* scroll */}
-                    {winners.length === 0 && <div className="empty">Sin ganadores</div>}
-                    {winners.map((w, idx)=>(
-                      <div className="winner-row" key={idx}>
-                        <div className="w-name">{w.name}</div>
-                        <div className="w-total">💰 {w.total}</div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="box-footer">
-                    Total: {winners.length}
-                    <button 
-                      className="btn btn-gray" 
-                      style={{marginLeft:8}}
-                      onClick={()=>{
-                        if (confirm('¿Limpiar la lista de ganadores guardados?')) {
-                          setWinners([])
-                          try { localStorage.removeItem(winnersKey) } catch {}
-                        }
-                      }}
-                    >🧹 Limpiar</button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="dash-col">
-                <div className="box box-green">
-                  <div className="box-header">👥 PARTICIPANTES</div>
-                  <div className="box-body list scrollable"> {/* scroll */}
-                    {state.top.length === 0 && <div className="empty">Sin participantes</div>}
-                    {state.top.map((d, i)=>(
-                      <div className="winner-row" key={d.user+i}>
-                        <div className="w-name">{i+1}. {d.user}</div>
-                        <div className="w-total">💎 {d.total}</div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="box-footer">Total: {totalParticipants} | Diamantes: {state.donationsTotal || 0}</div>
-                </div>
-              </div>
-
-              <div className="dash-col">
-                <div className="box box-purple">
-                  <div className="box-header">🎮 CONTROLES</div>
-                  <div className="controls">
-                    <div className="fields-2">
-                      <div><label>Tiempo (s):</label><input className="input" type="number" value={tInit} onChange={e=>setTInit(Number(e.target.value)||0)} /></div>
-                      <div><label>Delay (s):</label><input className="input" type="number" value={delayS} onChange={e=>setDelayS(Number(e.target.value)||0)} /></div>
-                    </div>
-
-                    <div className="btn-row">
-                      <button className="btn btn-green" onClick={startAuction}>▶️ Iniciar</button>
-                      <button className="btn btn-orange" onClick={togglePause}>{paused ? '⏯ Reanudar' : '⏸ Pausar'}</button>
-                    </div>
-                    <div className="btn-row">
-                      <button className="btn btn-red" onClick={finalizeAuction}>🏁 Finalizar</button>
-                      <button className="btn btn-gray" onClick={restartAuction}>🔁 Restart</button>
-                    </div>
-
-                    <div className="btn-row" style={{marginTop:8}}>
-                      <button className="btn btn-gray" onClick={()=>{
-                        // limpiar solo vista (participantes)
-                        setState(prev => ({ ...prev, top: [], donationsTotal: 0 }))
-                        setTotalParticipants(0)
-                      }}>🧽 Limpiar participantes (vista)</button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-            </div>
-          </div>
-        </div>
-      )}
+      </div>
     </>
   )
 }
@@ -647,7 +287,7 @@ function RoomWizard() {
   const [room, setRoom] = useState(randomRoom())
   const [top, setTop] = useState(3)
   const [user, setUser] = useState('')
-  const [ws] = useState(q.get('ws') || import.meta.env.VITE_WS_URL || DEFAULT_WS)
+  const [ws] = useState(q.get('ws') || import.meta.env?.VITE_WS_URL || DEFAULT_WS)
 
   const makeUrl = () => {
     const p = new URLSearchParams()
@@ -693,9 +333,6 @@ function RoomWizard() {
           }}>Copiar link</button>
         </div>
         <div className="w-hint">Pega el link en <b>Browser Source</b> de TikTok LIVE Studio.</div>
-        <div className="w-hint" style={{marginTop:8}}>
-          Panel Admin: <a href={`/?view=admin&ws=${encodeURIComponent(sanitizeBaseUrl(ws))}`}>abrir aquí</a>
-        </div>
       </div>
     </div>
   )
