@@ -18,165 +18,296 @@ function randomRoom(){ return "room-" + Math.random().toString(36).slice(2,7); }
    ADMIN PANEL (EMBEBIDO)
    Entra con:  /?view=admin&ws=https://tu-back
    ========================================================= */
-function AdminPanel() {
-  const q = new URLSearchParams(location.search);
-  const defaultWS = q.get("ws") || DEFAULT_WS;
 
-  const [baseUrl, setBaseUrl] = useState(localStorage.getItem("ADMIN_WS") || sanitizeBaseUrl(defaultWS));
-  const [adminKey, setAdminKey] = useState(localStorage.getItem("ADMIN_KEY") || "");
-  const WS = useMemo(() => sanitizeBaseUrl(baseUrl), [baseUrl]);
 
-  const [tab, setTab] = useState("dashboard"); // dashboard | users | detail
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [adminKey, setAdminKey] = useState("");
+  const [authenticated, setAuthenticated] = useState(false);
+  const [msg, setMsg] = useState("");
 
-  const [stats, setStats] = useState({ total: 0, active: 0, expired: 0, disabled: 0 });
+  const [view, setView] = useState("dashboard");
+  const [stats, setStats] = useState(null);
+
+  // lista
   const [users, setUsers] = useState([]);
-  const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
-  const [detail, setDetail] = useState(null);
+  const [filter, setFilter] = useState("all");
 
-  useEffect(() => { localStorage.setItem("ADMIN_WS", WS); }, [WS]);
-  useEffect(() => { if (adminKey) localStorage.setItem("ADMIN_KEY", adminKey); }, [adminKey]);
+  // activar/agregar
+  const [newUser, setNewUser] = useState("");
+  const [days, setDays] = useState(30);
 
-  const getJSON = async (url) => {
-    const r = await fetch(url, { headers: adminKey ? { "x-admin-key": adminKey } : {} });
-    const txt = await r.text();
-    return { ok: r.ok, data: txt ? JSON.parse(txt) : {} };
-  };
+  // detalles
+  const [selected, setSelected] = useState(null);
 
-  const loadStats = async () => {
-    setLoading(true); setError("");
-    const { ok, data } = await getJSON(`${WS}/admin/stats`);
-    if (ok && data?.ok) setStats(data.stats || { total:0, active:0, expired:0, disabled:0 });
-    else setError("No se pudieron cargar las estadísticas");
-    setLoading(false);
-  };
-  const loadUsers = async () => {
-    setLoading(true); setError("");
-    const url = new URL(`${WS}/admin/user/list`);
-    if (filter && filter !== "all") url.searchParams.set("status", filter);
-    if (search) url.searchParams.set("search", search);
-    const { ok, data } = await getJSON(url.toString());
-    if (ok && data?.ok) setUsers(data.users || []);
-    else setError("No se pudo cargar la lista de usuarios");
-    setLoading(false);
-  };
-  const loadDetail = async (u) => {
-    setLoading(true); setError("");
-    const { ok, data } = await getJSON(`${WS}/admin/user/${encodeURIComponent(u)}`);
-    if (ok && data?.ok) { setDetail(data.user); setTab("detail"); }
-    else setError("No se pudo cargar el usuario");
-    setLoading(false);
-  };
+  async function checkAuth(e) {
+    e?.preventDefault?.();
+    setMsg("");
+    try {
+      const r = await fetch(`${WS}/admin/stats`, {
+        headers: { "x-admin-key": adminKey },
+      });
+      if (r.ok) {
+        setAuthenticated(true);
+        await loadStats();
+      } else {
+        setMsg("Admin Key incorrecta");
+      }
+    } catch {
+      setMsg("Error de conexión");
+    }
+  }
 
-  useEffect(() => { if (tab === "dashboard") loadStats(); }, [tab, WS, adminKey]);
-  useEffect(() => { if (tab === "users") loadUsers(); }, [tab, filter, search, WS, adminKey]);
+  async function loadStats() {
+    try {
+      const r = await fetch(`${WS}/admin/stats`, {
+        headers: { "x-admin-key": adminKey },
+      });
+      const data = await r.json().catch(() => ({}));
+      if (data?.ok) setStats(data.stats);
+    } catch {}
+  }
 
-  const actionPost = async (url, body={}) => postJSON(url, body, adminKey?{"x-admin-key": adminKey}:{});
+  async function loadUsers() {
+    try {
+      const p = new URLSearchParams();
+      if (filter !== "all") p.set("status", filter);
+      if (search) p.set("search", search);
+      const r = await fetch(`${WS}/admin/user/list?${p.toString()}`, {
+        headers: { "x-admin-key": adminKey },
+      });
+      const data = await r.json().catch(() => ({}));
+      if (data?.ok) setUsers(data.users || []);
+    } catch {}
+  }
 
-  const activateUser = async (user, days) => {
-    setLoading(true); setError("");
-    const { ok, data } = await actionPost(`${WS}/admin/user/activate`, { tiktokUser: user, days });
-    if (!ok || !data?.ok) setError("No se pudo activar/Extender días");
-    await loadDetail(user);
-    setLoading(false);
-  };
-  const disableUser = async (user) => {
-    setLoading(true); setError("");
-    const { ok } = await actionPost(`${WS}/admin/user/${encodeURIComponent(user)}/disable`);
-    if (!ok) setError("No se pudo desactivar");
-    await loadDetail(user);
-    setLoading(false);
-  };
-  const enableUser = async (user) => {
-    setLoading(true); setError("");
-    const { ok, data } = await actionPost(`${WS}/admin/user/${encodeURIComponent(user)}/enable`);
-    if (!ok || !data?.ok) setError(data?.message || "No se pudo habilitar (si expiró, usa Activar)");
-    await loadDetail(user);
-    setLoading(false);
-  };
-  const deleteUser = async (user) => {
-    if (!confirm(`¿Eliminar ${user}?`)) return;
-    setLoading(true); setError("");
-    const { ok } = await actionPost(`${WS}/admin/user/${encodeURIComponent(user)}/delete`);
-    if (!ok) setError("No se pudo eliminar");
-    setTab("users");
-    await loadUsers();
-    setLoading(false);
-  };
+  // === ACTIVAR / AGREGAR USUARIO ===
+  async function activateUser() {
+    setMsg("");
+    const u = (newUser || "").trim().replace(/^@+/, "");
+    if (!u) {
+      setMsg("Ingresa un usuario de TikTok (sin @).");
+      return;
+    }
+    if (days < 1) {
+      setMsg("Los días deben ser mayor a 0.");
+      return;
+    }
+    try {
+      const r = await fetch(`${WS}/admin/user/activate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-key": adminKey,
+        },
+        body: JSON.stringify({ tiktokUser: u, days }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (data?.ok) {
+        alert(`✅ @${u} activado por ${days} días`);
+        setNewUser("");
+        setDays(30);
+        loadStats();
+        if (view === "list") loadUsers();
+      } else {
+        setMsg(data?.error || "No se pudo activar");
+      }
+    } catch {
+      setMsg("Error de red");
+    }
+  }
 
-  const fmt = (ts) => {
-    if (!ts) return "—";
-    const d = new Date(Number(ts));
-    return isNaN(d.getTime()) ? "—" : d.toLocaleString();
-    };
+  async function viewDetails(tiktokUser) {
+    try {
+      const r = await fetch(`${WS}/admin/user/${tiktokUser}`, {
+        headers: { "x-admin-key": adminKey },
+      });
+      const data = await r.json().catch(() => ({}));
+      if (data?.ok) {
+        setSelected(data.user);
+        setView("details");
+      }
+    } catch {}
+  }
+
+  async function enableUser(tiktokUser) {
+    try {
+      const r = await fetch(`${WS}/admin/user/${tiktokUser}/enable`, {
+        method: "POST",
+        headers: { "x-admin-key": adminKey },
+      });
+      if (r.ok) {
+        alert("Usuario habilitado");
+        if (view === "details") viewDetails(tiktokUser);
+        if (view === "list") loadUsers();
+        loadStats();
+      }
+    } catch {}
+  }
+
+  async function disableUser(tiktokUser) {
+    if (!confirm(`¿Desactivar a @${tiktokUser}?`)) return;
+    try {
+      const r = await fetch(`${WS}/admin/user/${tiktokUser}/disable`, {
+        method: "POST",
+        headers: { "x-admin-key": adminKey },
+      });
+      if (r.ok) {
+        alert("Usuario desactivado");
+        if (view === "details") viewDetails(tiktokUser);
+        if (view === "list") loadUsers();
+        loadStats();
+      }
+    } catch {}
+  }
+
+  async function deleteUser(tiktokUser) {
+    if (!confirm(`¿Eliminar a @${tiktokUser}? Esta acción no se puede deshacer.`)) return;
+    try {
+      const r = await fetch(`${WS}/admin/user/${tiktokUser}/delete`, {
+        method: "POST",
+        headers: { "x-admin-key": adminKey },
+      });
+      if (r.ok) {
+        alert("Usuario eliminado");
+        if (view === "details") {
+          setView("list");
+          setSelected(null);
+        }
+        loadUsers();
+        loadStats();
+      }
+    } catch {}
+  }
+
+  if (!authenticated) {
+    return (
+      <div className="gate">
+        <form className="g-card" onSubmit={checkAuth}>
+          <div className="g-title">🔒 Panel Admin</div>
+          <div className="g-subtitle">Backend: {WS || "(sin ws)"}</div>
+          <div className="g-field">
+            <input
+              type="password"
+              value={adminKey}
+              onChange={(e) => setAdminKey(e.target.value)}
+              placeholder="ADMIN_KEY"
+            />
+          </div>
+          {msg && <div className="g-msg">{msg}</div>}
+          <div className="g-actions">
+            <button className="g-primary" type="submit">
+              Acceder
+            </button>
+            <a className="g-ghost" href={`/?ws=${encodeURIComponent(WS)}`}>
+              Volver
+            </a>
+          </div>
+        </form>
+      </div>
+    );
+  }
 
   return (
-    <div className="manage-panel">
-      <div className="manage-header">
-        <h1>Panel de Administración</h1>
-        <div className="manage-nav">
-          <button className={`tab-btn ${tab === "dashboard" ? "active" : ""}`} onClick={() => setTab("dashboard")}>Dashboard</button>
-          <button className={`tab-btn ${tab === "users" ? "active" : ""}`} onClick={() => setTab("users")}>Usuarios</button>
+    <div className="wizard">
+      <div className="w-card" style={{ maxWidth: 980 }}>
+        <h2>Panel Admin</h2>
+
+        <div className="tabs">
+          <button
+            className={`tab-btn ${view === "dashboard" ? "active" : ""}`}
+            onClick={() => {
+              setView("dashboard");
+              loadStats();
+            }}
+          >
+            Dashboard
+          </button>
+          <button
+            className={`tab-btn ${view === "list" ? "active" : ""}`}
+            onClick={() => {
+              setView("list");
+              loadUsers();
+            }}
+          >
+            Usuarios
+          </button>
+          <button
+            className={`tab-btn ${view === "activate" ? "active" : ""}`}
+            onClick={() => setView("activate")}
+          >
+            Agregar / Activar
+          </button>
         </div>
-      </div>
 
-      <div className="manage-content">
-        <div className="toolbar">
-          <input className="search-input" placeholder="Base URL del backend" value={baseUrl} onChange={(e)=>setBaseUrl(e.target.value)} />
-          <input className="search-input" placeholder="Admin Key (x-admin-key)" value={adminKey} onChange={(e)=>setAdminKey(e.target.value)} />
-        </div>
-
-        {error && <div className="g-msg" style={{ marginBottom: 15 }}>{error}</div>}
-
-        {tab === "dashboard" && (
-          <>
-            <div className="stats-grid">
-              <div className="stat-card blue"><div className="stat-number">{stats.total}</div><div className="stat-label">Total</div></div>
-              <div className="stat-card green"><div className="stat-number">{stats.active}</div><div className="stat-label">Activos</div></div>
-              <div className="stat-card orange"><div className="stat-number">{stats.expired}</div><div className="stat-label">Expirados</div></div>
-              <div className="stat-card red"><div className="stat-number">{stats.disabled}</div><div className="stat-label">Deshabilitados</div></div>
+        {/* Dashboard */}
+        {view === "dashboard" && (
+          <div className="grid-3">
+            <div className="stat">
+              <div className="stat-title">Activos</div>
+              <div className="stat-value">{stats?.active ?? "-"}</div>
             </div>
-            <button className="btn w-btn" onClick={loadStats} disabled={loading}>{loading ? "Actualizando..." : "Actualizar"}</button>
-          </>
+            <div className="stat">
+              <div className="stat-title">Expirados</div>
+              <div className="stat-value">{stats?.expired ?? "-"}</div>
+            </div>
+            <div className="stat">
+              <div className="stat-title">Deshabilitados</div>
+              <div className="stat-value">{stats?.disabled ?? "-"}</div>
+            </div>
+            <div className="w-actions" style={{ gridColumn: "1 / -1" }}>
+              <button className="w-primary" onClick={loadStats}>
+                Refrescar
+              </button>
+              <a className="w-success" href={`/?ws=${encodeURIComponent(WS)}`}>
+                Ir al Wizard
+              </a>
+            </div>
+          </div>
         )}
 
-        {tab === "users" && (
+        {/* Lista */}
+        {view === "list" && (
           <>
-            <div className="toolbar">
-              <input className="search-input" placeholder="Buscar usuario…" value={search} onChange={(e)=>setSearch(e.target.value)} />
-              <select className="filter-select" value={filter} onChange={(e)=>setFilter(e.target.value)}>
+            <div className="w-row" style={{ gap: 8 }}>
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Buscar…"
+              />
+              <select value={filter} onChange={(e) => setFilter(e.target.value)}>
                 <option value="all">Todos</option>
                 <option value="active">Activos</option>
                 <option value="expired">Expirados</option>
                 <option value="disabled">Deshabilitados</option>
               </select>
-              <button className="btn-export" onClick={loadUsers} disabled={loading}>{loading?"Cargando…":"Buscar"}</button>
+              <button className="w-btn" onClick={loadUsers}>
+                Buscar
+              </button>
             </div>
 
-            <div className="licenses-table">
-              <div className="table-header">
-                <div>Usuario</div><div>Días activos</div><div>Restantes</div><div>Creado</div><div>Último uso</div><div>Estatus</div><div>Acciones</div>
-              </div>
-              {users.map(u=>(
-                <div className="table-row" key={u.tiktokUser}>
-                  <div><b>@{u.tiktokUser}</b></div>
-                  <div>{u.daysActive}</div>
-                  <div>{u.daysRemaining}</div>
-                  <div>{fmt(u.createdAt)}</div>
-                  <div>{u.lastUsed?fmt(u.lastUsed):"—"}</div>
-                  <div><span className={`badge ${u.status}`}>{u.status}</span></div>
-                  <div className="table-actions">
-                    <button className="btn-sm view" onClick={()=>loadDetail(u.tiktokUser)}>Ver</button>
-                    <button className="btn-sm extend" onClick={()=>{
-                      const d = Number(prompt("Días a agregar:", "30"));
-                      if (d>0) activateUser(u.tiktokUser, d);
-                    }}>Extender</button>
-                    {u.status!=='disabled'
-                      ? <button className="btn-sm revoke" onClick={()=>disableUser(u.tiktokUser)}>Desactivar</button>
-                      : <button className="btn-sm enable" onClick={()=>enableUser(u.tiktokUser)}>Habilitar</button>}
-                    <button className="btn-sm revoke" onClick={()=>deleteUser(u.tiktokUser)}>Eliminar</button>
+            <div className="list-table" style={{ marginTop: 12, maxHeight: 420, overflow: "auto" }}>
+              {users.length === 0 && <div className="w-hint">Sin resultados</div>}
+              {users.map((u) => (
+                <div key={u.tiktokUser} className="row-lite">
+                  <div className="cell">@{u.tiktokUser}</div>
+                  <div className="cell">Estado: {u.status}</div>
+                  <div className="cell">Días: {u.daysRemaining ?? "-"}</div>
+                  <div className="cell actions">
+                    <button className="w-btn" onClick={() => viewDetails(u.tiktokUser)}>
+                      Detalles
+                    </button>
+                    {u.status === "disabled" ? (
+                      <button className="w-success" onClick={() => enableUser(u.tiktokUser)}>
+                        Habilitar
+                      </button>
+                    ) : (
+                      <button className="w-btn" onClick={() => disableUser(u.tiktokUser)}>
+                        Deshabilitar
+                      </button>
+                    )}
+                    <button className="w-danger" onClick={() => deleteUser(u.tiktokUser)}>
+                      Eliminar
+                    </button>
                   </div>
                 </div>
               ))}
@@ -184,34 +315,82 @@ function AdminPanel() {
           </>
         )}
 
-        {tab === "detail" && detail && (
+        {/* Agregar / Activar */}
+        {view === "activate" && (
           <>
-            <button className="btn-back" onClick={()=>setTab("users")}>← Volver</button>
-            <div className="detail-card">
-              <h3>Usuario: @{detail.tiktokUser}</h3>
-              <div className="detail-row"><strong>Días activos</strong><div>{detail.daysActive}</div></div>
-              <div className="detail-row"><strong>Vence</strong><div>{fmt(detail.expiresAt)}</div></div>
-              <div className="detail-row"><strong>Restantes</strong><div>{detail.daysRemaining}</div></div>
-              <div className="detail-row"><strong>Estatus</strong><div><span className={`badge ${detail.status}`}>{detail.status}</span></div></div>
-              <div className="detail-row"><strong>Creado</strong><div>{fmt(detail.createdAt)}</div></div>
-              <div className="detail-row"><strong>Último uso</strong><div>{detail.lastUsed?fmt(detail.lastUsed):"—"}</div></div>
-              <div style={{marginTop:15, display:"flex", gap:8}}>
-                <button className="btn-export" onClick={()=>{
-                  const d = Number(prompt("Días a agregar:", "30"));
-                  if (d>0) activateUser(detail.tiktokUser, d);
-                }}>Agregar días</button>
-                {detail.status!=='disabled'
-                  ? <button className="w-danger" onClick={()=>disableUser(detail.tiktokUser)}>Desactivar</button>
-                  : <button className="btn-export" onClick={()=>enableUser(detail.tiktokUser)}>Habilitar</button>}
-                <button className="w-danger" onClick={()=>deleteUser(detail.tiktokUser)}>Eliminar</button>
-              </div>
+            <div className="w-field">
+              <label>Usuario TikTok (sin @)</label>
+              <input
+                value={newUser}
+                onChange={(e) => setNewUser(e.target.value)}
+                placeholder="usuario123"
+              />
+            </div>
+            <div className="w-field">
+              <label>Días de acceso</label>
+              <input
+                type="number"
+                min="1"
+                value={days}
+                onChange={(e) => setDays(Math.max(1, Number(e.target.value) || 1))}
+              />
+            </div>
+            {msg && <div className="w-hint" style={{ color: "#ff6" }}>{msg}</div>}
+            <div className="w-actions">
+              <button className="w-primary" onClick={activateUser}>
+                Guardar
+              </button>
+              <button
+                className="w-btn"
+                onClick={() => {
+                  setNewUser("");
+                  setDays(30);
+                  setMsg("");
+                }}
+              >
+                Limpiar
+              </button>
             </div>
           </>
+        )}
+
+        {/* Detalles */}
+        {view === "details" && selected && (
+          <div className="detail-card">
+            <h3>@{selected.tiktokUser}</h3>
+            <div className="w-hint">Estado: {selected.status}</div>
+            <div className="w-hint">
+              Días restantes: {selected.daysRemaining ?? "-"}
+            </div>
+            <div className="w-hint">
+              Expira:{" "}
+              {selected.expiresAt ? new Date(selected.expiresAt).toLocaleString() : "-"}
+            </div>
+            <div className="w-row" style={{ gap: 8, marginTop: 12 }}>
+              {selected.status === "disabled" ? (
+                <button className="w-success" onClick={() => enableUser(selected.tiktokUser)}>
+                  Habilitar
+                </button>
+              ) : (
+                <button className="w-btn" onClick={() => disableUser(selected.tiktokUser)}>
+                  Deshabilitar
+                </button>
+              )}
+              <button className="w-danger" onClick={() => deleteUser(selected.tiktokUser)}>
+                Eliminar
+              </button>
+              <button className="w-btn" onClick={() => setView("list")}>
+                Volver
+              </button>
+            </div>
+          </div>
         )}
       </div>
     </div>
   );
 }
+
+
 
 /* =========================================================
    APP
