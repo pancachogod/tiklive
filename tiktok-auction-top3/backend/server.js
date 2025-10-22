@@ -9,21 +9,20 @@ import pg from 'pg';
 
 const { Pool } = pg;
 
-/* ================== CONFIG BÁSICA ================== */
+/* ================== CONFIG ================== */
 const PORT = process.env.PORT || 8080;
 const ADMIN_KEY = process.env.ADMIN_KEY || 'pancacho123';
 
-// Orígenes permitidos (sin “/” final). Puedes ampliar por ENV (ALLOWED_ORIGINS=origen1,origen2,…)
+// Orígenes sin slash final. Puedes ampliar con ALLOWED_ORIGINS=origen1,origen2
 function parseOriginsFromEnv() {
   const raw = process.env.ALLOWED_ORIGINS || '';
   return raw.split(',').map(s => s.trim()).filter(Boolean);
 }
-
 const ORIGINS = [
   'https://tiklive-blue.vercel.app',
-  'https://tiklive-production.up.railway.app', // <- SIN slash final
-  /\.vercel\.app$/,   // permitir cualquier *.vercel.app
-  /\.railway\.app$/,  // permitir cualquier *.railway.app
+  'https://tiklive-production.up.railway.app',
+  /\.vercel\.app$/,
+  /\.railway\.app$/,
   ...parseOriginsFromEnv(),
 ];
 
@@ -42,7 +41,7 @@ const io = new Server(server, {
   transports: ['websocket', 'polling'],
 });
 
-/* ================== POSTGRESQL (Railway DB) ================== */
+/* ================== DB (Postgres) ================== */
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false, require: true },
@@ -85,7 +84,7 @@ async function initDatabase() {
 }
 initDatabase();
 
-/* ================== SUBASTA MULTI-ROOM ================== */
+/* ================== SUBASTAS (multi-room) ================== */
 const rooms = new Map();
 const ROOM_IDLE_MS = 60 * 60 * 1000;
 const now = () => Date.now();
@@ -95,7 +94,7 @@ function newRoom(roomId) {
     id: roomId,
     user: (process.env.TIKTOK_USER || 'sticx33').trim(),
     auction: { title: 'Subasta', endsAt: 0, donationsTotal: 0, top: [] },
-    donors: new Map(), // Map(username -> { total, avatar })
+    donors: new Map(), // username -> { total, avatar }
     tiktok: null,
     reconnectTimer: null,
     lastActivity: now(),
@@ -146,9 +145,10 @@ async function connectLoop(r) {
     if (r.reconnectTimer) { clearInterval(r.reconnectTimer); r.reconnectTimer = null; }
 
     r.tiktok.on('gift', data => {
-      if (!isRunning(r)) return; // solo cuenta cuando endsAt > now()
+      // Cuenta SOLO si hay una subasta activa (normal o delay) -> endsAt > now()
+      if (!isRunning(r)) return;
 
-      // giftType 1 y sin repeatEnd son regalos “en progreso” (multitoque)
+      // giftType 1 en curso sin repeatEnd = multitoque; esperamos el cierre
       if (data?.giftType === 1 && !data?.repeatEnd) return;
 
       const user   = data?.nickname || data?.uniqueId || 'Anónimo';
@@ -177,7 +177,7 @@ async function connectLoop(r) {
   }
 }
 
-// Limpieza de rooms inactivos y “heartbeat” de estado
+// Limpieza y heartbeat
 setInterval(() => {
   const cutoff = now() - ROOM_IDLE_MS;
   for (const [id, r] of rooms) {
@@ -202,9 +202,9 @@ setInterval(() => {
 const postJSON = (res, data)=>res.json(data);
 function normalizeUsername(u) { return String(u || '').trim().toLowerCase().replace(/^@+/, ''); }
 
-/* ================== ENDPOINTS DE SALA ================== */
+/* ================== ENDPOINTS SALA ================== */
 
-// Cambiar usuario tiktok de la sala
+// Cambiar usuario tiktok
 app.post('/:room/user', (req, res) => {
   const roomId = String(req.params.room || '').trim();
   const r = getRoom(roomId);
@@ -222,7 +222,7 @@ app.post('/:room/user', (req, res) => {
   postJSON(res, { ok: true, user: r.user });
 });
 
-// Iniciar nueva subasta (limpia ranking)
+// Iniciar subasta (limpia ranking)
 app.post('/:room/auction/start', (req, res) => {
   const roomId = String(req.params.room || '').trim();
   const r = getRoom(roomId);
@@ -239,7 +239,7 @@ app.post('/:room/auction/start', (req, res) => {
   postJSON(res, { ok: true, auction: r.auction });
 });
 
-// Extender tiempo (delay) sin limpiar donadores
+// Extender tiempo (delay) SIN limpiar donadores
 app.post('/:room/auction/extend', (req, res) => {
   const roomId = String(req.params.room || '').trim();
   const r = getRoom(roomId);
@@ -247,14 +247,21 @@ app.post('/:room/auction/extend', (req, res) => {
   const dur = Math.max(1, Number(durationSec) || 10);
   if (title) r.auction.title = String(title);
 
-  r.auction.endsAt = now() + dur * 1000;
-  // No se toca r.donors ni donationsTotal ni top
-
+  r.auction.endsAt = now() + dur * 1000; // sólo movemos endsAt
   io.to(r.id).emit('state', r.auction);
   postJSON(res, { ok: true, auction: r.auction });
 });
 
-// Estado/consulta
+// Detener subasta (deja endsAt=0, NO limpia ranking)
+app.post('/:room/auction/stop', (req, res) => {
+  const roomId = String(req.params.room || '').trim();
+  const r = getRoom(roomId);
+  r.auction.endsAt = 0;
+  io.to(r.id).emit('state', r.auction);
+  postJSON(res, { ok: true, auction: r.auction });
+});
+
+// Estado
 app.get('/:room/auction', (req, res) => {
   const r = getRoom(String(req.params.room || '').trim());
   postJSON(res, r.auction);
@@ -272,7 +279,7 @@ app.get('/:room/status', (req, res) => {
   });
 });
 
-// Debug: simular regalo
+// Debug: simular gift
 app.post('/:room/debug/gift', (req, res) => {
   const r = getRoom(String(req.params.room || '').trim());
   const { user='Tester', avatar='', diamonds=50 } = req.body || {};
@@ -286,7 +293,7 @@ app.post('/:room/debug/gift', (req, res) => {
   postJSON(res, { ok: true, top: r.auction.top });
 });
 
-/* ================== SISTEMA DE USUARIOS ================== */
+/* ================== USUARIOS (licencias) ================== */
 app.post('/user/verify', async (req, res) => {
   const tiktokUser = normalizeUsername(req.body?.tiktokUser);
   if (!tiktokUser) return res.status(400).json({ ok: false, error: 'user-required' });
@@ -318,7 +325,6 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-/* === Admin: estadísticas para el Panel === */
 app.get('/admin/stats', requireAdmin, async (_req, res) => {
   try {
     const q = `
