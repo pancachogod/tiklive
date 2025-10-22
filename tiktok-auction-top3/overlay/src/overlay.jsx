@@ -5,7 +5,6 @@ import './style.css'
 /* =================== CONFIG =================== */
 const DEFAULT_WS = 'https://tiklive-production.up.railway.app'
 
-/* =================== App (router simple por query) =================== */
 export default function App() {
   const q = new URLSearchParams(location.search)
   const view = (q.get('view') || '').toLowerCase()
@@ -20,7 +19,7 @@ export default function App() {
   )
 }
 
-/* =================== Gate de verificación de usuario =================== */
+/* =================== Gate =================== */
 function OverlayWithUser({ children }) {
   const q = new URLSearchParams(location.search)
   const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || DEFAULT_WS
@@ -50,11 +49,7 @@ function OverlayWithUser({ children }) {
 
   if (busy) {
     return (
-      <div className="gate">
-        <div className="g-card">
-          <div className="g-title">Verificando acceso…</div>
-        </div>
-      </div>
+      <div className="gate"><div className="g-card"><div className="g-title">Verificando acceso…</div></div></div>
     )
   }
 
@@ -86,9 +81,7 @@ function OverlayWithUser({ children }) {
         <form className="g-card" onSubmit={verify}>
           <div className="g-title">Verificar Acceso</div>
           <div className="g-subtitle">Ingresa tu usuario de TikTok (sin @)</div>
-          <div className="g-field">
-            <input value={tiktokUser} onChange={e=>setTiktokUser(e.target.value)} placeholder="usuario123" />
-          </div>
+          <div className="g-field"><input value={tiktokUser} onChange={e=>setTiktokUser(e.target.value)} placeholder="usuario123" /></div>
           {msg && <div className="g-msg">{msg}</div>}
           <div className="g-actions">
             <button className="g-primary" type="submit">Verificar</button>
@@ -110,7 +103,7 @@ function OverlayWithUser({ children }) {
   )
 }
 
-/* =================== Admin Panel (en la misma SPA) =================== */
+/* =================== Admin (igual que antes, abre con ?view=admin) =================== */
 function AdminPanel() {
   const q = new URLSearchParams(location.search)
   const RAW_WS = q.get('ws') || import.meta.env.VITE_WS_URL || DEFAULT_WS
@@ -136,11 +129,8 @@ function AdminPanel() {
       const res = await fetch(`${WS}/admin/stats`, { headers: { 'x-admin-key': adminKey } })
       if (res.ok) { setAuthenticated(true); await loadStats() }
       else setMsg('Admin Key incorrecta')
-    } catch {
-      setMsg('Error de conexión')
-    }
+    } catch { setMsg('Error de conexión') }
   }
-
   const loadStats = async () => {
     try {
       const res = await fetch(`${WS}/admin/stats`, { headers: { 'x-admin-key': adminKey } })
@@ -148,7 +138,6 @@ function AdminPanel() {
       if (data?.ok) setStats(data.stats)
     } catch {}
   }
-
   const loadUsers = async () => {
     try {
       const params = new URLSearchParams()
@@ -161,12 +150,11 @@ function AdminPanel() {
       if (data?.ok) setUsers(data.users || [])
     } catch {}
   }
-
   const activateUser = async () => {
     setMsg('')
     const u = (newUser || '').trim().replace(/^@+/, '')
     if (!u) { setMsg('Ingresa un usuario'); return }
-    if (days < 1) { setMsg('Los días deben ser mayor a 0'); return }
+    if (days < 1) { setMsg('Los días deben ser > 0'); return }
     try {
       const res = await fetch(`${WS}/admin/user/activate`, {
         method: 'POST',
@@ -174,69 +162,35 @@ function AdminPanel() {
         body: JSON.stringify({ tiktokUser: u, days })
       })
       const data = await res.json().catch(()=>({}))
-      if (data?.ok) {
-        alert(`✅ Usuario @${u} activado por ${days} días`)
-        setNewUser(''); setDays(30)
-        loadStats(); if (view === 'list') loadUsers()
-      } else setMsg(data?.error || 'Error')
-    } catch {
-      setMsg('Error de red')
-    }
+      if (data?.ok) { alert(`✅ @${u} activado por ${days} días`); setNewUser(''); setDays(30); loadStats(); if (view==='list') loadUsers() }
+      else setMsg(data?.error || 'Error')
+    } catch { setMsg('Error de red') }
   }
-
   const viewDetails = async (tiktokUser) => {
     try {
-      const res = await fetch(`${WS}/admin/user/${tiktokUser}`, {
-        headers: { 'x-admin-key': adminKey }
-      })
+      const res = await fetch(`${WS}/admin/user/${tiktokUser}`, { headers: { 'x-admin-key': adminKey } })
       const data = await res.json().catch(()=>({}))
       if (data?.ok) { setSelectedUser(data.user); setView('details') }
     } catch {}
   }
-
   const disableUser = async (tiktokUser) => {
     if (!confirm(`¿Desactivar a @${tiktokUser}?`)) return
     try {
-      const res = await fetch(`${WS}/admin/user/${tiktokUser}/disable`, {
-        method: 'POST',
-        headers: { 'x-admin-key': adminKey }
-      })
-      if (res.ok) {
-        alert('Usuario desactivado')
-        if (view === 'details') viewDetails(tiktokUser)
-        if (view === 'list') loadUsers()
-        loadStats()
-      }
+      const res = await fetch(`${WS}/admin/user/${tiktokUser}/disable`, { method:'POST', headers:{'x-admin-key':adminKey} })
+      if (res.ok) { alert('Usuario desactivado'); if (view==='details') viewDetails(tiktokUser); if (view==='list') loadUsers(); loadStats() }
     } catch {}
   }
-
   const enableUser = async (tiktokUser) => {
     try {
-      const res = await fetch(`${WS}/admin/user/${tiktokUser}/enable`, {
-        method: 'POST',
-        headers: { 'x-admin-key': adminKey }
-      })
-      if (res.ok) {
-        alert('Usuario reactivado')
-        if (view === 'details') viewDetails(tiktokUser)
-        if (view === 'list') loadUsers()
-        loadStats()
-      }
+      const res = await fetch(`${WS}/admin/user/${tiktokUser}/enable`, { method:'POST', headers:{'x-admin-key':adminKey} })
+      if (res.ok) { alert('Usuario habilitado'); if (view==='details') viewDetails(tiktokUser); if (view==='list') loadUsers(); loadStats() }
     } catch {}
   }
-
   const deleteUser = async (tiktokUser) => {
-    if (!confirm(`¿Eliminar a @${tiktokUser}? Esta acción no se puede deshacer.`)) return
+    if (!confirm(`¿Eliminar a @${tiktokUser}?`)) return
     try {
-      const res = await fetch(`${WS}/admin/user/${tiktokUser}/delete`, {
-        method: 'POST',
-        headers: { 'x-admin-key': adminKey }
-      })
-      if (res.ok) {
-        alert('Usuario eliminado')
-        if (view === 'details') { setView('list'); setSelectedUser(null) }
-        loadUsers(); loadStats()
-      }
+      const res = await fetch(`${WS}/admin/user/${tiktokUser}/delete`, { method:'POST', headers:{'x-admin-key':adminKey} })
+      if (res.ok) { alert('Usuario eliminado'); if (view==='details') { setView('list'); setSelectedUser(null) } loadUsers(); loadStats() }
     } catch {}
   }
 
@@ -246,9 +200,7 @@ function AdminPanel() {
         <form className="g-card" onSubmit={checkAuth}>
           <div className="g-title">🔒 Panel Admin</div>
           <div className="g-subtitle">Backend: {WS}</div>
-          <div className="g-field">
-            <input type="password" value={adminKey} onChange={e=>setAdminKey(e.target.value)} placeholder="ADMIN_KEY" />
-          </div>
+          <div className="g-field"><input type="password" value={adminKey} onChange={e=>setAdminKey(e.target.value)} placeholder="ADMIN_KEY" /></div>
           {msg && <div className="g-msg">{msg}</div>}
           <div className="g-actions">
             <button className="g-primary" type="submit">Acceder</button>
@@ -261,7 +213,7 @@ function AdminPanel() {
 
   return (
     <div className="wizard">
-      <div className="w-card" style={{maxWidth: 980}}>
+      <div className="w-card" style={{maxWidth:980}}>
         <h2>Admin Panel</h2>
         <div className="tabs">
           <button className={`tab-btn ${view==='dashboard'?'active':''}`} onClick={()=>{setView('dashboard'); loadStats()}}>Dashboard</button>
@@ -269,19 +221,16 @@ function AdminPanel() {
           <button className={`tab-btn ${view==='activate'?'active':''}`} onClick={()=>setView('activate')}>Activar</button>
         </div>
 
-        {view === 'dashboard' && (
+        {view==='dashboard' && (
           <div className="grid-3">
             <div className="stat"><div className="stat-title">Activos</div><div className="stat-value">{stats?.active ?? '-'}</div></div>
             <div className="stat"><div className="stat-title">Expirados</div><div className="stat-value">{stats?.expired ?? '-'}</div></div>
             <div className="stat"><div className="stat-title">Deshabilitados</div><div className="stat-value">{stats?.disabled ?? '-'}</div></div>
-            <div className="w-actions" style={{gridColumn:'1 / -1'}}>
-              <button className="w-primary" onClick={loadStats}>Refrescar</button>
-              <a className="w-success" href={`/?ws=${encodeURIComponent(WS)}`}>Ir al Wizard</a>
-            </div>
+            <div className="w-actions" style={{gridColumn:'1/-1'}}><button className="w-primary" onClick={loadStats}>Refrescar</button></div>
           </div>
         )}
 
-        {view === 'list' && (
+        {view==='list' && (
           <>
             <div className="w-row" style={{gap:8}}>
               <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar..." />
@@ -296,7 +245,7 @@ function AdminPanel() {
             <div className="list-table" style={{marginTop:12}}>
               {users.length===0 && <div className="w-hint">Sin resultados</div>}
               {users.map(u=>(
-                <div key={u.tiktokUser} className="row-lite">
+                <div className="row-lite" key={u.tiktokUser}>
                   <div className="cell">@{u.tiktokUser}</div>
                   <div className="cell">Estado: {u.status}</div>
                   <div className="cell">Días: {u.daysRemaining ?? '-'}</div>
@@ -315,19 +264,10 @@ function AdminPanel() {
 
         {view==='activate' && (
           <>
-            <div className="w-field">
-              <label>Usuario TikTok (sin @)</label>
-              <input value={newUser} onChange={e=>setNewUser(e.target.value)} placeholder="usuario123" />
-            </div>
-            <div className="w-field">
-              <label>Días de acceso</label>
-              <input type="number" min="1" value={days} onChange={e=>setDays(Number(e.target.value)||1)} />
-            </div>
+            <div className="w-field"><label>Usuario TikTok (sin @)</label><input value={newUser} onChange={e=>setNewUser(e.target.value)} placeholder="usuario123" /></div>
+            <div className="w-field"><label>Días de acceso</label><input type="number" min="1" value={days} onChange={e=>setDays(Number(e.target.value)||1)} /></div>
             {msg && <div className="w-hint" style={{color:'#ff6'}}>{msg}</div>}
-            <div className="w-actions">
-              <button className="w-primary" onClick={activateUser}>Activar</button>
-              <button className="w-btn" onClick={()=>{setNewUser(''); setDays(30)}}>Limpiar</button>
-            </div>
+            <div className="w-actions"><button className="w-primary" onClick={activateUser}>Activar</button><button className="w-btn" onClick={()=>{setNewUser(''); setDays(30)}}>Limpiar</button></div>
           </>
         )}
 
@@ -335,8 +275,8 @@ function AdminPanel() {
           <div className="detail-card">
             <h3>@{selectedUser.tiktokUser}</h3>
             <div className="w-hint">Estado: {selectedUser.status}</div>
-            <div className="w-hint">Días restantes: {selectedUser.daysRemaining ?? '-'}</div>
-            <div className="w-hint">Expira: {selectedUser.expiresAt ? new Date(selectedUser.expiresAt).toLocaleString() : '-'}</div>
+            <div className="w-hint">Días: {selectedUser.daysRemaining ?? '-'}</div>
+            <div className="w-hint">Expira: {selectedUser.expiresAt? new Date(selectedUser.expiresAt).toLocaleString(): '-'}</div>
             <div className="w-row" style={{gap:8, marginTop:12}}>
               {selectedUser.status==='disabled'
                 ? <button className="w-success" onClick={()=>enableUser(selectedUser.tiktokUser)}>Habilitar</button>
@@ -346,13 +286,12 @@ function AdminPanel() {
             </div>
           </div>
         )}
-
       </div>
     </div>
   )
 }
 
-/* =================== Overlay (cronómetro único con etiqueta en delay) =================== */
+/* =================== Overlay con timer interno =================== */
 function AuctionOverlay() {
   const q = useMemo(() => new URLSearchParams(location.search), [])
   const room = (q.get('room') || 'demo').trim()
@@ -363,17 +302,17 @@ function AuctionOverlay() {
   const topN = Number(q.get('top') || 3)
 
   const [state, setState] = useState({ title: initialTitle, endsAt: 0, top: [], donationsTotal: 0 })
-  const [now, setNow] = useState(Date.now())
-
   const [dashboard, setDashboard] = useState(true)
 
-  // Cronómetro
-  const [tInit, setTInit] = useState(60)
-  const [delayS, setDelayS] = useState(10)
-  const [phase, setPhase] = useState('idle') // 'idle' | 'main' | 'delay' | 'done'
+  // === TIMER NUEVO ===
+  const [tInit, setTInit] = useState(60)      // tiempo normal
+  const [delayS, setDelayS] = useState(10)    // tiempo delay
+  const [phase, setPhase] = useState('idle')  // idle | main | delay | done
   const [paused, setPaused] = useState(false)
-  const [endsAt, setEndsAt] = useState(0)
-  const delayArmedRef = useRef(false)
+  const [remainingMs, setRemainingMs] = useState(0) // SIEMPRE lo que falta (ms) del cronómetro visible
+
+  const rafRef = useRef(null)
+  const lastTsRef = useRef(0)
 
   // Ganadores
   const [winners, setWinners] = useState([])
@@ -385,16 +324,15 @@ function AuctionOverlay() {
   // socket
   const socketRef = useRef(null)
 
+  // Cargar/guardar ganadores
   useEffect(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(winnersKey) || '[]')
-      if (Array.isArray(saved)) setWinners(saved)
-    } catch {}
+    try { const saved = JSON.parse(localStorage.getItem(winnersKey) || '[]'); if (Array.isArray(saved)) setWinners(saved) } catch {}
   }, [winnersKey])
   useEffect(() => {
     try { localStorage.setItem(winnersKey, JSON.stringify(winners)) } catch {}
   }, [winners, winnersKey])
 
+  // Conectar socket
   useEffect(() => {
     const socket = io(WS, { transports:['websocket','polling'], query:{ room } })
     socketRef.current = socket
@@ -404,69 +342,71 @@ function AuctionOverlay() {
   }, [WS, room])
 
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 200)
-    return () => clearInterval(id)
-  }, [])
-
-  useEffect(() => {
     (async () => {
       if (!autoUser) return
       try { await postJSON(`${WS}/${room}/user`, { user: autoUser }) } catch {}
     })()
   }, [autoUser, WS, room])
 
-  const remainMs = Math.max(0, (paused ? endsAt : endsAt) - now)
-  const mm = String(Math.floor((paused ? 0 : remainMs) / 1000 / 60)).padStart(2, '0')
-  const ss = String(Math.floor((paused ? 0 : remainMs) / 1000) % 60).padStart(2, '0')
-
+  // Reducir remainingMs con RAF (suave y exacto)
   useEffect(() => {
-    if (paused) return
-    if (phase === 'main' && remainMs === 0 && delayArmedRef.current) {
-      delayArmedRef.current = false
-      startDelay()
-      return
-    }
-    if (phase === 'delay' && remainMs === 0) {
-      const finalWinner = state.top?.[0]
-      if (finalWinner) {
-        setCurrentWinner(finalWinner)
-        setWinners(w => [{ name: finalWinner.user, total: finalWinner.total }, ...w])
-        setShowWinner(true)
-        setTimeout(() => { setShowWinner(false); setCurrentWinner(null) }, 2500)
+    cancelAnimationFrame(rafRef.current)
+    const loop = (ts) => {
+      if (!lastTsRef.current) lastTsRef.current = ts
+      const dt = ts - lastTsRef.current
+      lastTsRef.current = ts
+      if (!paused && remainingMs > 0) {
+        setRemainingMs(prev => Math.max(0, prev - dt))
       }
-      setPhase('done')
-      setEndsAt(0)
+      rafRef.current = requestAnimationFrame(loop)
     }
+    rafRef.current = requestAnimationFrame(loop)
+    return () => cancelAnimationFrame(rafRef.current)
+  }, [paused, remainingMs]) // dependencia en remainingMs para continuar ticks
+
+  // Cambios de fase automáticos
+  useEffect(() => {
     setTotalParticipants(state.top?.length || 0)
-  }, [phase, remainMs, paused, state.top])
 
+    if (remainingMs === 0) {
+      if (phase === 'main') {
+        // inicia delay
+        startDelay()
+      } else if (phase === 'delay') {
+        // finaliza
+        const finalWinner = state.top?.[0]
+        if (finalWinner) {
+          setCurrentWinner(finalWinner)
+          setWinners(w => [{ name: finalWinner.user, total: finalWinner.total }, ...w])
+          setShowWinner(true)
+          setTimeout(() => { setShowWinner(false); setCurrentWinner(null) }, 2500)
+        }
+        setPhase('done')
+      }
+    }
+  }, [remainingMs, phase, state.top])
+
+  // Acciones
   const startMain = async () => {
-    const mainSec = Math.max(1, Number(tInit) || 0)
-    if (!mainSec) return
-    setPhase('main')
-    setPaused(false)
-    delayArmedRef.current = true
-    await postJSON(`${WS}/${room}/auction/start`, { durationSec: mainSec, title: state.title })
-    setEndsAt(Date.now() + mainSec * 1000)
+    const s = Math.max(1, Number(tInit) || 0)
+    setPhase('main'); setPaused(false); setRemainingMs(s * 1000); lastTsRef.current = 0
+    await postJSON(`${WS}/${room}/auction/start`, { durationSec: s, title: state.title })
   }
-
   const startDelay = async () => {
     const d = Math.max(0, Number(delayS) || 0)
-    if (!d) { setPhase('done'); setEndsAt(0); return }
-    setPhase('delay')
-    setPaused(false)
+    if (d <= 0) { setPhase('done'); setRemainingMs(0); return }
+    setPhase('delay'); setPaused(false); setRemainingMs(d * 1000); lastTsRef.current = 0
     await postJSON(`${WS}/${room}/auction/extend`, { durationSec: d, title: state.title })
-    setEndsAt(Date.now() + d * 1000)
   }
-
   const togglePause = () => setPaused(p => !p)
-  const finalize    = async () => { setPhase('done'); setPaused(false); setEndsAt(0) }
+  const finalize    = () => { setPhase('done'); setPaused(false); setRemainingMs(0) }
   const restart     = async () => { await startMain() }
+  const clearParticipantsClient = () => { setState(prev => ({ ...prev, top: [], donationsTotal: 0 })); setTotalParticipants(0) }
 
-  const clearParticipantsClient = () => {
-    setState(prev => ({ ...prev, top: [], donationsTotal: 0 }))
-    setTotalParticipants(0)
-  }
+  // Mostrar mm:ss a partir de remainingMs
+  const totalSec = Math.ceil(remainingMs / 1000)
+  const mm = String(Math.floor(totalSec / 60)).padStart(2, '0')
+  const ss = String(totalSec % 60).padStart(2, '0')
 
   const getBorderColor = (i) => ['#FFD700','#C0C0C0','#CD7F32','#0ff'][i] || '#0ff'
 
@@ -513,9 +453,10 @@ function AuctionOverlay() {
           <div className="dash-card" onClick={e=>e.stopPropagation()}>
             <div className="dash-tabs"><div className="tab active">🎮 Control</div></div>
             <div className="dash-grid">
+
               <div className="dash-col">
                 <div className="box box-blue">
-                  <div className="box-header">🏆 GANADORES <span className="text-xs opacity-70"> (guardados por sala)</span></div>
+                  <div className="box-header">🏆 GANADORES (guardados por sala)</div>
                   <div className="box-body list">
                     {winners.length === 0 && <div className="empty">Sin ganadores</div>}
                     {winners.map((w, idx)=>(
@@ -527,13 +468,10 @@ function AuctionOverlay() {
                   </div>
                   <div className="box-footer">
                     Total: {winners.length}
-                    <button 
-                      className="btn btn-gray" 
-                      style={{marginLeft:8}}
+                    <button className="btn btn-gray" style={{marginLeft:8}}
                       onClick={()=>{
-                        if (confirm('¿Limpiar la lista de ganadores guardados?')) {
-                          setWinners([])
-                          try { localStorage.removeItem(winnersKey) } catch {}
+                        if (confirm('¿Limpiar ganadores?')) {
+                          setWinners([]); try { localStorage.removeItem(winnersKey) } catch {}
                         }
                       }}
                     >🧹 Limpiar</button>
@@ -566,21 +504,17 @@ function AuctionOverlay() {
                       <div><label>Delay (s):</label><input className="input" type="number" value={delayS} onChange={e=>setDelayS(Number(e.target.value)||0)} /></div>
                       <div></div>
                     </div>
-
                     <div className="btn-row">
                       <button className="btn btn-green" onClick={startMain}>▶️ Iniciar</button>
                       <button className="btn btn-orange" onClick={togglePause}>{paused ? '⏯ Reanudar' : '⏸ Pausar'}</button>
                     </div>
-
                     <div className="btn-row">
                       <button className="btn btn-red" onClick={finalize}>🏁 Finalizar</button>
                       <button className="btn btn-gray" onClick={restart}>🔁 Restart</button>
                     </div>
-
                     <div className="btn-row" style={{marginTop:8}}>
                       <button className="btn btn-gray" onClick={clearParticipantsClient}>🧽 Limpiar participantes (vista)</button>
                     </div>
-
                     <div className="progress-strip" />
                   </div>
                 </div>
@@ -645,10 +579,7 @@ function RoomWizard() {
             catch { prompt('Copia el link:', link) }
           }}>Copiar link</button>
         </div>
-        <div className="w-hint">Pega el link en <b>Browser Source</b> de TikTok LIVE Studio.</div>
-        <div className="w-hint" style={{marginTop:8}}>
-          Panel Admin: <a href={`/?view=admin&ws=${encodeURIComponent(sanitizeBaseUrl(ws))}`}>abrir aquí</a>
-        </div>
+        <div className="w-hint">Panel Admin: <a href={`/?view=admin&ws=${encodeURIComponent(sanitizeBaseUrl(ws))}`}>abrir aquí</a></div>
       </div>
     </div>
   )
