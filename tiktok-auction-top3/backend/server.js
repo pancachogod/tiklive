@@ -151,7 +151,7 @@ async function connectLoop(r) {
       // Contar SIEMPRE que el contador esté corriendo (fase 'main' o 'delay')
       if (!isRunning(r)) return;
 
-      // regalos “en progreso” no se cuentan (hasta repeatEnd)
+      // regalos "en progreso" no se cuentan (hasta repeatEnd)
       if (data?.giftType === 1 && !data?.repeatEnd) return;
 
       const user   = data?.nickname || data?.uniqueId || 'Anónimo';
@@ -262,6 +262,22 @@ app.post('/:room/auction/finalize', (req, res) => {
   r.auction.phase = 'idle';
   io.to(r.id).emit('state', r.auction);
   postJSON(res, { ok: true });
+});
+
+// Limpiar participantes
+app.post('/:room/auction/clear', (req, res) => {
+  const roomId = String(req.params.room || '').trim();
+  const r = getRoom(roomId);
+  
+  r.donors.clear();
+  r.auction.top = [];
+  r.auction.donationsTotal = 0;
+  
+  console.log(`[${r.id}] Participantes limpiados`);
+  io.to(r.id).emit('donation', { donationsTotal: 0, top: [] });
+  io.to(r.id).emit('state', r.auction);
+  
+  postJSON(res, { ok: true, message: 'Participantes limpiados' });
 });
 
 // Estado
