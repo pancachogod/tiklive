@@ -1,360 +1,677 @@
-// server.js
-import 'dotenv/config';
-import express from 'express';
-import http from 'http';
-import { Server } from 'socket.io';
-import cors from 'cors';
-import { WebcastPushConnection } from 'tiktok-live-connector';
-import pg from 'pg';
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { io } from "socket.io-client";
+import "./style.css";
 
-const { Pool } = pg;
+/* =================== Config =================== */
+const DEFAULT_WS = (import.meta.env?.VITE_WS_URL || "https://tiklive-production.up.railway.app").replace(/\/+$/,"");
 
-/* ================== CONFIG ================== */
-const PORT = process.env.PORT || 8080;
-const ADMIN_KEY = process.env.ADMIN_KEY || 'pancacho123';
-
-function parseOriginsFromEnv() {
-  const raw = process.env.ALLOWED_ORIGINS || '';
-  return raw.split(',').map(s => s.trim()).filter(Boolean);
+/* =================== Helpers =================== */
+function sanitizeBaseUrl(u){ return String(u||'').trim().replace(/\/+$/,''); }
+async function postJSON(url, body, headers = {}){
+  const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json', ...headers}, body: JSON.stringify(body ?? {}) });
+  const text = await r.text(); 
+  return { ok: r.ok, status: r.status, data: text ? JSON.parse(text) : {} }
 }
-const ORIGINS = [
-  'https://tiklive-blue.vercel.app',
-  'https://tiklive-production.up.railway.app',
-  /\.vercel\.app$/i,
-  /\.railway\.app$/i,
-  ...parseOriginsFromEnv(),
-];
+function randomRoom(){ return "room-" + Math.random().toString(36).slice(2,7); }
 
-/* ================== APP / IO ================== */
-const app = express();
-app.use(cors({
-  origin: ORIGINS,
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'x-admin-key'],
-}));
-app.use(express.json());
+/* =========================================================
+   ADMIN PANEL (EMBEBIDO)
+   Entra con:  /?view=admin&ws=https://tu-back
+   ========================================================= */
+function AdminPanel() {
+  const q = new URLSearchParams(location.search);
+  const defaultWS = q.get("ws") || DEFAULT_WS;
 
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: { origin: ORIGINS, methods: ['GET', 'POST'] },
-  transports: ['websocket', 'polling'],
-});
+  const [baseUrl, setBaseUrl] = useState(localStorage.getItem("ADMIN_WS") || sanitizeBaseUrl(defaultWS));
+  const [adminKey, setAdminKey] = useState(localStorage.getItem("ADMIN_KEY") || "");
+  const WS = useMemo(() => sanitizeBaseUrl(baseUrl), [baseUrl]);
 
-/* ================== POSTGRES ================== */
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false, require: true },
-  connectionTimeoutMillis: 30000,
-  idleTimeoutMillis: 30000,
-  max: 5,
-  allowExitOnIdle: false
-});
-pool.on('error', (err) => console.error('❌ Pool error:', err.message));
+  const [tab, setTab] = useState("dashboard"); // dashboard | users | detail
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-async function initDatabase() {
-  const maxRetries = 5;
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      await pool.query('SELECT NOW()');
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS users (
-          id SERIAL PRIMARY KEY,
-          tiktok_user VARCHAR(255) UNIQUE NOT NULL,
-          days_active INTEGER NOT NULL,
-          expires_at BIGINT NOT NULL,
-          created_at BIGINT NOT NULL,
-          last_used BIGINT,
-          status VARCHAR(50) DEFAULT 'active',
-          notes TEXT,
-          usage_count INTEGER DEFAULT 0
-        );
-        CREATE INDEX IF NOT EXISTS idx_users_tiktok_user ON users(tiktok_user);
-        CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
-        CREATE INDEX IF NOT EXISTS idx_users_expires_at ON users(expires_at);
-      `);
-      console.log('✅ DB OK');
-      return;
-    } catch (e) {
-      console.error(`❌ DB intento ${i+1}:`, e.message);
-      if (i === maxRetries - 1) { console.log('⚠️ sigo sin DB; el server arranca igual'); return; }
-      await new Promise(r => setTimeout(r, Math.min(1000 * 2 ** (i + 1), 10000)));
-    }
-  }
-}
-initDatabase();
+  const [stats, setStats] = useState({ total: 0, active: 0, expired: 0, disabled: 0 });
+  const [users, setUsers] = useState([]);
+  const [filter, setFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [detail, setDetail] = useState(null);
 
-/* ================== ROOMS / AUCTION ================== */
-const rooms = new Map();
-const ROOM_IDLE_MS = 60 * 60 * 1000;
-const now = () => Date.now();
+  useEffect(() => { localStorage.setItem("ADMIN_WS", WS); }, [WS]);
+  useEffect(() => { if (adminKey) localStorage.setItem("ADMIN_KEY", adminKey); }, [adminKey]);
 
-function newRoom(roomId) {
-  return {
-    id: roomId,
-    user: (process.env.TIKTOK_USER || 'sticx33').trim(),
-    auction: {
-      title: 'Subasta',
-      endsAt: 0,            // timestamp ms; >now => contando
-      donationsTotal: 0,
-      top: [],
-    },
-    donors: new Map(),     // user -> { total, avatar }
-    tiktok: null,
-    reconnectTimer: null,
-    lastActivity: now(),
+  const getJSON = async (url) => {
+    const r = await fetch(url, { headers: adminKey ? { "x-admin-key": adminKey } : {} });
+    const txt = await r.text();
+    return { ok: r.ok, data: txt ? JSON.parse(txt) : {} };
   };
+
+  const loadStats = async () => {
+    setLoading(true); setError("");
+    const { ok, data } = await getJSON(`${WS}/admin/stats`);
+    if (ok && data?.ok) setStats(data.stats || { total:0, active:0, expired:0, disabled:0 });
+    else setError("No se pudieron cargar las estadísticas");
+    setLoading(false);
+  };
+  const loadUsers = async () => {
+    setLoading(true); setError("");
+    const url = new URL(`${WS}/admin/user/list`);
+    if (filter && filter !== "all") url.searchParams.set("status", filter);
+    if (search) url.searchParams.set("search", search);
+    const { ok, data } = await getJSON(url.toString());
+    if (ok && data?.ok) setUsers(data.users || []);
+    else setError("No se pudo cargar la lista de usuarios");
+    setLoading(false);
+  };
+  const loadDetail = async (u) => {
+    setLoading(true); setError("");
+    const { ok, data } = await getJSON(`${WS}/admin/user/${encodeURIComponent(u)}`);
+    if (ok && data?.ok) { setDetail(data.user); setTab("detail"); }
+    else setError("No se pudo cargar el usuario");
+    setLoading(false);
+  };
+
+  useEffect(() => { if (tab === "dashboard") loadStats(); }, [tab, WS, adminKey]);
+  useEffect(() => { if (tab === "users") loadUsers(); }, [tab, filter, search, WS, adminKey]);
+
+  const actionPost = async (url, body={}) => postJSON(url, body, adminKey?{"x-admin-key": adminKey}:{});
+
+  const activateUser = async (user, days) => {
+    setLoading(true); setError("");
+    const { ok, data } = await actionPost(`${WS}/admin/user/activate`, { tiktokUser: user, days });
+    if (!ok || !data?.ok) setError("No se pudo activar/Extender días");
+    await loadDetail(user);
+    setLoading(false);
+  };
+  const disableUser = async (user) => {
+    setLoading(true); setError("");
+    const { ok } = await actionPost(`${WS}/admin/user/${encodeURIComponent(user)}/disable`);
+    if (!ok) setError("No se pudo desactivar");
+    await loadDetail(user);
+    setLoading(false);
+  };
+  const enableUser = async (user) => {
+    setLoading(true); setError("");
+    const { ok, data } = await actionPost(`${WS}/admin/user/${encodeURIComponent(user)}/enable`);
+    if (!ok || !data?.ok) setError(data?.message || "No se pudo habilitar (si expiró, usa Activar)");
+    await loadDetail(user);
+    setLoading(false);
+  };
+  const deleteUser = async (user) => {
+    if (!confirm(`¿Eliminar ${user}?`)) return;
+    setLoading(true); setError("");
+    const { ok } = await actionPost(`${WS}/admin/user/${encodeURIComponent(user)}/delete`);
+    if (!ok) setError("No se pudo eliminar");
+    setTab("users");
+    await loadUsers();
+    setLoading(false);
+  };
+
+  const fmt = (ts) => {
+    if (!ts) return "—";
+    const d = new Date(Number(ts));
+    return isNaN(d.getTime()) ? "—" : d.toLocaleString();
+    };
+
+  return (
+    <div className="manage-panel">
+      <div className="manage-header">
+        <h1>Panel de Administración</h1>
+        <div className="manage-nav">
+          <button className={`tab-btn ${tab === "dashboard" ? "active" : ""}`} onClick={() => setTab("dashboard")}>Dashboard</button>
+          <button className={`tab-btn ${tab === "users" ? "active" : ""}`} onClick={() => setTab("users")}>Usuarios</button>
+        </div>
+      </div>
+
+      <div className="manage-content">
+        <div className="toolbar">
+          <input className="search-input" placeholder="Base URL del backend" value={baseUrl} onChange={(e)=>setBaseUrl(e.target.value)} />
+          <input className="search-input" placeholder="Admin Key (x-admin-key)" value={adminKey} onChange={(e)=>setAdminKey(e.target.value)} />
+        </div>
+
+        {error && <div className="g-msg" style={{ marginBottom: 15 }}>{error}</div>}
+
+        {tab === "dashboard" && (
+          <>
+            <div className="stats-grid">
+              <div className="stat-card blue"><div className="stat-number">{stats.total}</div><div className="stat-label">Total</div></div>
+              <div className="stat-card green"><div className="stat-number">{stats.active}</div><div className="stat-label">Activos</div></div>
+              <div className="stat-card orange"><div className="stat-number">{stats.expired}</div><div className="stat-label">Expirados</div></div>
+              <div className="stat-card red"><div className="stat-number">{stats.disabled}</div><div className="stat-label">Deshabilitados</div></div>
+            </div>
+            <button className="btn w-btn" onClick={loadStats} disabled={loading}>{loading ? "Actualizando..." : "Actualizar"}</button>
+          </>
+        )}
+
+        {tab === "users" && (
+          <>
+            <div className="toolbar">
+              <input className="search-input" placeholder="Buscar usuario…" value={search} onChange={(e)=>setSearch(e.target.value)} />
+              <select className="filter-select" value={filter} onChange={(e)=>setFilter(e.target.value)}>
+                <option value="all">Todos</option>
+                <option value="active">Activos</option>
+                <option value="expired">Expirados</option>
+                <option value="disabled">Deshabilitados</option>
+              </select>
+              <button className="btn-export" onClick={loadUsers} disabled={loading}>{loading?"Cargando…":"Buscar"}</button>
+            </div>
+
+            <div className="licenses-table">
+              <div className="table-header">
+                <div>Usuario</div><div>Días activos</div><div>Restantes</div><div>Creado</div><div>Último uso</div><div>Estatus</div><div>Acciones</div>
+              </div>
+              {users.map(u=>(
+                <div className="table-row" key={u.tiktokUser}>
+                  <div><b>@{u.tiktokUser}</b></div>
+                  <div>{u.daysActive}</div>
+                  <div>{u.daysRemaining}</div>
+                  <div>{fmt(u.createdAt)}</div>
+                  <div>{u.lastUsed?fmt(u.lastUsed):"—"}</div>
+                  <div><span className={`badge ${u.status}`}>{u.status}</span></div>
+                  <div className="table-actions">
+                    <button className="btn-sm view" onClick={()=>loadDetail(u.tiktokUser)}>Ver</button>
+                    <button className="btn-sm extend" onClick={()=>{
+                      const d = Number(prompt("Días a agregar:", "30"));
+                      if (d>0) activateUser(u.tiktokUser, d);
+                    }}>Extender</button>
+                    {u.status!=='disabled'
+                      ? <button className="btn-sm revoke" onClick={()=>disableUser(u.tiktokUser)}>Desactivar</button>
+                      : <button className="btn-sm enable" onClick={()=>enableUser(u.tiktokUser)}>Habilitar</button>}
+                    <button className="btn-sm revoke" onClick={()=>deleteUser(u.tiktokUser)}>Eliminar</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {tab === "detail" && detail && (
+          <>
+            <button className="btn-back" onClick={()=>setTab("users")}>← Volver</button>
+            <div className="detail-card">
+              <h3>Usuario: @{detail.tiktokUser}</h3>
+              <div className="detail-row"><strong>Días activos</strong><div>{detail.daysActive}</div></div>
+              <div className="detail-row"><strong>Vence</strong><div>{fmt(detail.expiresAt)}</div></div>
+              <div className="detail-row"><strong>Restantes</strong><div>{detail.daysRemaining}</div></div>
+              <div className="detail-row"><strong>Estatus</strong><div><span className={`badge ${detail.status}`}>{detail.status}</span></div></div>
+              <div className="detail-row"><strong>Creado</strong><div>{fmt(detail.createdAt)}</div></div>
+              <div className="detail-row"><strong>Último uso</strong><div>{detail.lastUsed?fmt(detail.lastUsed):"—"}</div></div>
+              <div style={{marginTop:15, display:"flex", gap:8}}>
+                <button className="btn-export" onClick={()=>{
+                  const d = Number(prompt("Días a agregar:", "30"));
+                  if (d>0) activateUser(detail.tiktokUser, d);
+                }}>Agregar días</button>
+                {detail.status!=='disabled'
+                  ? <button className="w-danger" onClick={()=>disableUser(detail.tiktokUser)}>Desactivar</button>
+                  : <button className="btn-export" onClick={()=>enableUser(detail.tiktokUser)}>Habilitar</button>}
+                <button className="w-danger" onClick={()=>deleteUser(detail.tiktokUser)}>Eliminar</button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
 }
-function getRoom(roomId) {
-  let r = rooms.get(roomId);
-  if (!r) { r = newRoom(roomId); rooms.set(roomId, r); }
-  r.lastActivity = now();
-  return r;
-}
-const isRunning = (r) => Number(r.auction.endsAt) > now();
 
-function emitDonation(r) {
-  r.auction.top = [...r.donors.entries()]
-    .map(([u, v]) => ({ user: u, total: v.total, avatar: v.avatar }))
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 50);
-  io.to(r.id).emit('donation', {
-    donationsTotal: r.auction.donationsTotal,
-    top: r.auction.top
-  });
-}
+/* =========================================================
+   APP
+   ========================================================= */
+export default function App() {
+  const q = new URLSearchParams(location.search);
+  const view = (q.get("view") || "").toLowerCase();
+  const room = (q.get("room") || "").trim();
 
-function scheduleReconnect(r, ms = 30_000) {
-  if (r.reconnectTimer) return;
-  let left = Math.floor(ms / 1000);
-  console.log(`[${r.id}] Reintentando conexión en ${left}s…`);
-  r.reconnectTimer = setInterval(() => {
-    left -= 1;
-    if (left <= 0) {
-      clearInterval(r.reconnectTimer);
-      r.reconnectTimer = null;
-      connectLoop(r);
-    }
-  }, 1000);
+  if (view === "admin") return <AdminPanel />;
+  if (!room) return <RoomWizard />;
+  return (
+    <OverlayWithUser>
+      <AuctionOverlay />
+    </OverlayWithUser>
+  );
 }
 
-async function connectLoop(r) {
-  try {
-    if (r.tiktok) {
-      r.tiktok.removeAllListeners('gift');
-      r.tiktok.removeAllListeners('disconnected');
-      try { r.tiktok.disconnect && r.tiktok.disconnect(); } catch {}
-      r.tiktok = null;
-    }
-    r.tiktok = new WebcastPushConnection(r.user);
-    await r.tiktok.connect();
-    console.log(`[${r.id}] Conectado a @${r.user}`);
+/* ================= Verificación de usuario ================= */
+function OverlayWithUser({ children }) {
+  const q = new URLSearchParams(location.search);
+  const RAW_WS = q.get("ws") || DEFAULT_WS;
+  const WS = sanitizeBaseUrl(RAW_WS);
 
-    if (r.reconnectTimer) { clearInterval(r.reconnectTimer); r.reconnectTimer = null; }
+  const [ok, setOk] = useState(false);
+  const [busy, setBusy] = useState(true);
+  const [tiktokUser, setTiktokUser] = useState(q.get("user") || localStorage.getItem("TIKTOK_USER") || "");
+  const [msg, setMsg] = useState("");
+  const [daysRemaining, setDaysRemaining] = useState(0);
 
-    r.tiktok.on('gift', data => {
-      // ✅ Cuenta SIEMPRE que endsAt > now() (tanto tiempo normal como delay)
-      if (!isRunning(r)) return;
+  useEffect(() => {
+    (async () => {
+      const u = (q.get("user") || localStorage.getItem("TIKTOK_USER") || "").trim().replace(/^@+/, "");
+      if (!u) { setBusy(false); return; }
+      try {
+        const { ok: httpOK, data } = await postJSON(`${WS}/user/verify`, { tiktokUser: u });
+        if (httpOK && data?.ok) {
+          localStorage.setItem("TIKTOK_USER", u);
+          setDaysRemaining(data.daysRemaining || 0);
+          setOk(true);
+        }
+      } catch {}
+      setBusy(false);
+    })();
+  }, [WS]);
 
-      // gifts tipo 1 sin repeatEnd son el barrido; esperamos cierre
-      if (data?.giftType === 1 && !data?.repeatEnd) return;
+  if (busy) return <div className="gate"><div className="g-card"><div className="g-title">Verificando acceso…</div></div></div>;
 
-      const user   = data?.nickname || data?.uniqueId || 'Anónimo';
-      const avatar = data?.profilePictureUrl || '';
-      const per    = data?.diamondCount ?? data?.gift?.diamondCount ?? 0;
-      const count  = data?.repeatCount ?? 1;
-      const diamonds = per * count;
-
-      if (diamonds > 0) {
-        const prev = r.donors.get(user) || { total: 0, avatar };
-        prev.total += diamonds;
-        prev.avatar = avatar || prev.avatar;
-        r.donors.set(user, prev);
-        r.auction.donationsTotal += diamonds;
-        emitDonation(r);
+  if (!ok) {
+    const verify = async (e) => {
+      e?.preventDefault?.();
+      setMsg("");
+      const u = (tiktokUser || "").trim().replace(/^@+/, "");
+      if (!u) { setMsg("Ingresa tu usuario de TikTok."); return; }
+      try {
+        const { ok: httpOK, data } = await postJSON(`${WS}/user/verify`, { tiktokUser: u });
+        if (httpOK && data?.ok) {
+          localStorage.setItem("TIKTOK_USER", u);
+          setDaysRemaining(data.daysRemaining || 0);
+          setOk(true);
+        } else {
+          const error = data?.error || "invalid";
+          if (error === "subscription-expired") setMsg("Tu suscripción ha expirado.");
+          else if (error === "user-disabled") setMsg("Usuario desactivado.");
+          else if (error === "user-not-found") setMsg("Usuario no encontrado. Contacta al administrador.");
+          else setMsg("No tienes acceso.");
+        }
+      } catch {
+        setMsg("No se pudo contactar con el servidor.");
       }
-    });
-
-    r.tiktok.on('disconnected', () => {
-      console.log(`[${r.id}] Desconectado de TikTok.`);
-      scheduleReconnect(r, 30_000);
-    });
-  } catch (err) {
-    console.error(`[${r.id}] Error conectando a TikTok:`, err?.message || err);
-    scheduleReconnect(r, 30_000);
+    };
+    return (
+      <div className="gate">
+        <form className="g-card" onSubmit={verify}>
+          <div className="g-title">Verificar Acceso</div>
+          <div className="g-subtitle">Ingresa tu usuario de TikTok (sin @)</div>
+          <div className="g-field"><input value={tiktokUser} onChange={e=>setTiktokUser(e.target.value)} placeholder="usuario123" /></div>
+          {msg && <div className="g-msg">{msg}</div>}
+          <div className="g-actions">
+            <button className="g-primary" type="submit">Verificar</button>
+            <a className="g-ghost" href="https://t.me/+ae-ctGPi8sM1MTYx" target="_blank" rel="noreferrer">Obtener acceso</a>
+          </div>
+        </form>
+      </div>
+    );
   }
+
+  return (
+    <div>
+      <div className="days-remaining">
+        <span>👤 {localStorage.getItem("TIKTOK_USER") || tiktokUser}</span>
+        <span>⏱️ {daysRemaining} días restantes</span>
+      </div>
+      {children}
+    </div>
+  );
 }
 
-/* Limpieza periódica y pulso de estado */
-setInterval(() => {
-  const cutoff = now() - ROOM_IDLE_MS;
-  for (const [id, r] of rooms) {
-    if (r.lastActivity < cutoff && !isRunning(r)) {
-      console.log(`🧹 Eliminando room inactivo: ${id}`);
-      try { r.tiktok?.disconnect?.(); } catch {}
-      clearInterval(r.reconnectTimer);
-      rooms.delete(id);
+/* ======================= OVERLAY ======================= */
+/**
+ * Un solo cronómetro:
+ * - Corre tiempo normal (tInit).
+ * - Al llegar a 0, automáticamente muestra "Tiempo de delay" y corre delayS.
+ * - Durante normal y delay, las donaciones cuentan y se acumulan.
+ * - Al terminar delay, el reloj queda en 00:00 (no reinicia).
+ * Controles: Iniciar, Pausar/Reanudar, Restart, Finalizar.
+ */
+function AuctionOverlay() {
+  const q = useMemo(() => new URLSearchParams(location.search), []);
+  const room = (q.get("room") || "demo").trim();
+  const RAW_WS = q.get("ws") || DEFAULT_WS;
+  const WS = sanitizeBaseUrl(RAW_WS);
+
+  const initialTitle = q.get("title") || "Subasta";
+  const autoUser = (q.get("autouser") || "").replace(/^@+/, "").trim();
+  const topN = Number(q.get("top") || 3);
+
+  const [state, setState] = useState({ title: initialTitle, endsAt: 0, top: [], donationsTotal: 0 });
+  const [now, setNow] = useState(Date.now());
+  const [dashboard, setDashboard] = useState(false);
+
+  // Config de tiempos
+  const [tInit, setTInit] = useState(60);
+  const [delayS, setDelayS] = useState(10);
+
+  // Fases
+  const [phase, setPhase] = useState("normal"); // normal | delay | ended
+  const [paused, setPaused] = useState(false);
+
+  // Ganadores / participantes
+  const [winners, setWinners] = useState([]);
+  const [showWinner, setShowWinner] = useState(false);
+  const [currentWinner, setCurrentWinner] = useState(null);
+  const [totalParticipants, setTotalParticipants] = useState(0);
+
+  const socketRef = useRef(null);
+  const lastEndsAtRef = useRef(0);
+
+  // Persistir ganadores por sala
+  const winnersKey = useMemo(() => `Winners:${room}`, [room]);
+
+  useEffect(() => {
+    try { const saved = JSON.parse(localStorage.getItem(winnersKey) || "[]"); if (Array.isArray(saved)) setWinners(saved); } catch {}
+  }, [winnersKey]);
+  useEffect(() => {
+    try { localStorage.setItem(winnersKey, JSON.stringify(winners)); } catch {}
+  }, [winners, winnersKey]);
+
+  useEffect(() => {
+    const socket = io(WS, { transports:["websocket","polling"], query:{ room } });
+    socketRef.current = socket;
+
+    socket.on("connect", () => console.log("✅ Socket conectado"));
+    socket.on("disconnect", () => console.log("❌ Socket desconectado"));
+
+    socket.on("state", st => {
+      setState(prev => ({ ...prev, ...st }));
+    });
+
+    socket.on("donation", d => {
+      // Donaciones cuentan SIEMPRE (server emite donation cuando endsAt>now; en delay extendemos endsAt)
+      setState(prev => ({ ...prev, top: d.top || prev.top, donationsTotal: d.donationsTotal ?? prev.donationsTotal }));
+    });
+
+    return () => socket.close();
+  }, [WS, room]);
+
+  useEffect(() => {
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 150);
+    const handleVis = () => { if (!document.hidden) setNow(Date.now()); };
+    const handleFocus = () => setNow(Date.now());
+    document.addEventListener("visibilitychange", handleVis);
+    window.addEventListener("focus", handleFocus);
+    return () => { clearInterval(id); document.removeEventListener("visibilitychange", handleVis); window.removeEventListener("focus", handleFocus); };
+  }, []);
+
+  useEffect(() => { (async () => { if (!autoUser) return; try { await postJSON(`${WS}/${room}/user`, { user: autoUser }); } catch {} })(); }, [autoUser, WS, room]);
+
+  // Tiempos restantes
+  const remain = Math.max(0, (state.endsAt || 0) - now);
+
+  // Render del tiempo (mm:ss)
+  const mm = String(Math.floor((paused ? 0 : remain) / 1000 / 60)).padStart(2, '0');
+  const ss = String(Math.floor((paused ? 0 : remain) / 1000) % 60).padStart(2, '0');
+
+  // Faseo (normal -> delay -> ended)
+  useEffect(() => {
+    // Si se llegó a 0 y hay cambio de endsAt, decidir transición
+    if (!paused && remain === 0 && (state.endsAt || 0) > 0 && state.endsAt !== lastEndsAtRef.current) {
+      lastEndsAtRef.current = state.endsAt;
+
+      if (phase === "normal") {
+        // Ganador provisional
+        const win = state.top?.[0];
+        if (win) {
+          setCurrentWinner(win);
+          setWinners(w => [{ name: win.user, total: win.total }, ...w]);
+        }
+
+        // Pasar a DELAY: extender en backend para que cuenten donaciones
+        setPhase("delay");
+        postJSON(`${WS}/${room}/auction/extend`, { durationSec: Math.max(1, Number(delayS)||10), title: state.title })
+          .then(()=>console.log("✅ Delay extendido en backend"))
+          .catch(e=>console.error("❌ Error extendiendo delay:", e));
+      } else if (phase === "delay") {
+        // Cierre definitivo (ENDED)
+        const finalWinner = state.top?.[0];
+        if (finalWinner) {
+          setCurrentWinner(finalWinner);
+          // Actualizar el primer ganador con total final
+          setWinners(w => {
+            const copy = [...w];
+            if (copy.length > 0) copy[0] = { name: finalWinner.user, total: finalWinner.total };
+            return copy;
+          });
+        }
+        setPhase("ended");
+        // Mostrar animación breve (más corta)
+        setShowWinner(true);
+        setTimeout(() => { setShowWinner(false); setCurrentWinner(null); }, 2200); // 2.2s
+      }
     }
-  }
-}, 10 * 60 * 1000);
 
-setInterval(() => {
-  for (const r of rooms.values()) {
-    if (!isRunning(r) && r.auction.endsAt !== 0) {
-      io.to(r.id).emit('state', r.auction);
+    setTotalParticipants(state.top?.length || 0);
+  }, [paused, remain, state.endsAt, state.top, phase, WS, room, state.title, delayS]);
+
+  // Controles
+  const optimisticSetEnds = (sec) => {
+    // arranca al primer click sin esperar red
+    const localEnds = Date.now() + Math.max(1, Number(sec)||1)*1000;
+    setState(prev => ({ ...prev, endsAt: localEnds }));
+    lastEndsAtRef.current = 0; // permitir que el watcher detecte fin correcto
+  };
+
+  const startAuction = async () => {
+    setPhase("normal");
+    setShowWinner(false);
+    setCurrentWinner(null);
+    optimisticSetEnds(tInit);
+    await postJSON(`${WS}/${room}/auction/start`, { durationSec: Math.max(1, Number(tInit)||60), title: state.title });
+  };
+
+  const togglePause = () => setPaused(p => !p);
+
+  const restartAuction = async () => {
+    setPhase("normal");
+    setShowWinner(false);
+    setCurrentWinner(null);
+    optimisticSetEnds(tInit);
+    await postJSON(`${WS}/${room}/auction/start`, { durationSec: Math.max(1, Number(tInit)||60), title: state.title });
+  };
+
+  const finalizeAuction = async () => {
+    // Forzamos cierre rápido: set 1s y dejamos que transición lleve a delay y luego ended
+    if (phase === "normal") {
+      await postJSON(`${WS}/${room}/auction/extend`, { durationSec: 1, title: state.title });
+    } else if (phase === "delay") {
+      await postJSON(`${WS}/${room}/auction/extend`, { durationSec: 1, title: state.title });
     }
-  }
-}, 1000);
+  };
 
-/* ================== HELPERS ================== */
-const postJSON = (res, data) => res.json(data);
-const normalizeUsername = (u) => String(u || '').trim().toLowerCase().replace(/^@+/, '');
+  const clearParticipantsClient = () => {
+    setState(prev => ({ ...prev, top: [], donationsTotal: 0 }));
+  };
 
-/* ================== ENDPOINTS DE SALA ================== */
-// Cambiar usuario de TikTok
-app.post('/:room/user', (req, res) => {
-  const r = getRoom(String(req.params.room || '').trim());
-  const clean = normalizeUsername(req.body?.user);
-  if (!clean) return res.status(400).json({ ok: false, error: 'user-required' });
+  return (
+    <>
+      <button className="gear-floating" onClick={()=>setDashboard(true)}>⚙️</button>
 
-  r.user = clean;
-  console.log(`[${r.id}] Usuario cambiado a @${clean} (reconectando)…`);
-  // No tocamos donadores aquí.
-  scheduleReconnect(r, 1000);
-  io.to(r.id).emit('state', r.auction);
-  postJSON(res, { ok: true, user: r.user });
-});
+      {/* Ganador */}
+      {showWinner && currentWinner && (
+        <div className="winner-screen">
+          <div className="winner-card">
+            <div className="winner-badge">FINALIZADO</div>
+            <div className="winner-trophy">🏆</div>
+            <div className="winner-title">¡GANADOR!</div>
+            <div className="winner-name">{currentWinner.user}</div>
+            <div className="winner-amount"><span className="diamond-icon">💎</span>{currentWinner.total} diamantes</div>
+            <div className="winner-congrats">🎉 ¡Felicidades! 🎉</div>
+          </div>
+        </div>
+      )}
 
-// Iniciar subasta (limpia ranking)
-app.post('/:room/auction/start', (req, res) => {
-  const r = getRoom(String(req.params.room || '').trim());
-  const { durationSec = 60, title } = req.body || {};
-  const dur = Math.max(1, Number(durationSec) || 60);
-  if (title) r.auction.title = String(title);
+      {/* Overlay */}
+      {!showWinner && (
+        <div className="panel">
+          <div className="panel-container">
+            <div className="timer-box">
+              {phase === "delay" && (
+                <div className="delay-label">⏳ TIEMPO DE DELAY</div>
+              )}
+              {phase === "ended" && (
+                <div className="delay-label">⛔ FINALIZADO</div>
+              )}
+              <div className="timer">{paused ? "00:00" : `${mm}:${ss}`}</div>
+              {phase === "delay" && currentWinner && (
+                <div className="delay-info">
+                  Ganador provisional: {currentWinner?.user || "—"} con {currentWinner?.total || 0} 💎
+                </div>
+              )}
+            </div>
 
-  r.auction.endsAt = now() + dur * 1000;
-  r.auction.donationsTotal = 0;
-  r.auction.top = [];
-  r.donors.clear();
+            <div className="board">
+              {state.top.slice(0, topN).map((d, i) => (
+                <div className="row" key={d.user + i} style={{borderColor: ['#FFD700','#C0C0C0','#CD7F32','#0ff'][i] || '#0ff'}}>
+                  <div className={`badge ${i===1?'silver':i===2?'bronze':''}`}>{i+1}</div>
+                  <img className="avatar" src={d.avatar || ''} alt="" />
+                  <div className="name" title={d.user}>{d.user}</div>
+                  <div className="coin">💎 {d.total}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
-  io.to(r.id).emit('state', r.auction);
-  postJSON(res, { ok: true, auction: r.auction });
-});
+      {/* Dashboard / Controles */}
+      {dashboard && (
+        <div className="dash-wrap" onClick={()=>setDashboard(false)}>
+          <div className="dash-card" onClick={e=>e.stopPropagation()}>
+            <div className="dash-tabs"><div className="tab active">🎮 Control</div></div>
+            <div className="dash-grid">
+              <div className="dash-col">
+                <div className="box box-blue">
+                  <div className="box-header">🏆 GANADORES <span className="text-xs opacity-70"> (guardados por sala)</span></div>
+                  <div className="box-body list">
+                    {winners.length === 0 && <div className="empty">Sin ganadores</div>}
+                    {winners.map((w, idx)=>(
+                      <div className="winner-row" key={idx}>
+                        <div className="w-name">{w.name}</div>
+                        <div className="w-total">💰 {w.total}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="box-footer">
+                    Total: {winners.length}
+                    <button className="btn btn-gray" style={{marginLeft:8}}
+                      onClick={()=>{ if (confirm('¿Limpiar la lista de ganadores guardados?')) { setWinners([]); try { localStorage.removeItem(winnersKey) } catch {} } }}>
+                      🧹 Limpiar
+                    </button>
+                  </div>
+                </div>
+              </div>
 
-// Extender tiempo (delay) sin limpiar donadores
-app.post('/:room/auction/extend', (req, res) => {
-  const r = getRoom(String(req.params.room || '').trim());
-  const { durationSec = 10, title } = req.body || {};
-  const dur = Math.max(1, Number(durationSec) || 10);
-  if (title) r.auction.title = String(title);
+              <div className="dash-col">
+                <div className="box box-green">
+                  <div className="box-header">👥 PARTICIPANTES</div>
+                  <div className="box-body list">
+                    {state.top.length === 0 && <div className="empty">Sin participantes</div>}
+                    {state.top.map((d, i)=>(
+                      <div className="winner-row" key={d.user+i}>
+                        <div className="w-name">{i+1}. {d.user}</div>
+                        <div className="w-total">💎 {d.total}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="box-footer">Total: {totalParticipants} | Diamantes: {state.donationsTotal || 0}</div>
+                </div>
+              </div>
 
-  r.auction.endsAt = now() + dur * 1000; // sigue contando
-  io.to(r.id).emit('state', r.auction);
-  postJSON(res, { ok: true, auction: r.auction });
-});
+              <div className="dash-col">
+                <div className="box box-purple">
+                  <div className="box-header">🎮 CONTROLES</div>
+                  <div className="controls">
+                    <div className="fields-3">
+                      <div>
+                        <label>Tiempo normal (s):</label>
+                        <input className="input" type="number" value={tInit} onChange={e=>setTInit(Math.max(1, Number(e.target.value)||1))} />
+                      </div>
+                      <div>
+                        <label>Delay (s):</label>
+                        <input className="input" type="number" value={delayS} onChange={e=>setDelayS(Math.max(1, Number(e.target.value)||1))} />
+                      </div>
+                      <div>
+                        <label>Acciones</label>
+                        <div className="btn-row">
+                          <button className="btn btn-green" onClick={startAuction}>▶️ Iniciar</button>
+                          <button className="btn btn-orange" onClick={togglePause}>{paused ? "⏯ Reanudar" : "⏸ Pausar"}</button>
+                        </div>
+                      </div>
+                    </div>
 
-// Parar (forzar 0 y limpiar participantes)
-app.post('/:room/auction/stop', (req, res) => {
-  const r = getRoom(String(req.params.room || '').trim());
-  r.auction.endsAt = 0;
-  r.auction.donationsTotal = 0;
-  r.auction.top = [];
-  r.donors.clear();
-  io.to(r.id).emit('state', r.auction);
-  postJSON(res, { ok: true });
-});
+                    <div className="btn-row">
+                      <button className="btn btn-gray" onClick={restartAuction}>🔁 Restart</button>
+                      <button className="btn btn-red" onClick={finalizeAuction}>🏁 Finalizar</button>
+                    </div>
 
-// Estado actual
-app.get('/:room/auction', (req, res) => {
-  const r = getRoom(String(req.params.room || '').trim());
-  postJSON(res, r.auction);
-});
+                    <div className="btn-row" style={{marginTop:8}}>
+                      <button className="btn btn-gray" onClick={clearParticipantsClient}>🧽 Limpiar participantes (vista)</button>
+                    </div>
+                  </div>
 
-app.get('/:room/status', (req, res) => {
-  const r = getRoom(String(req.params.room || '').trim());
-  postJSON(res, {
-    room: r.id,
-    user: r.user,
-    running: isRunning(r),
-    endsAt: r.auction.endsAt,
-    donors: r.donors.size,
-    topSize: r.auction.top.length
-  });
-});
-
-// Debug regalo
-app.post('/:room/debug/gift', (req, res) => {
-  const r = getRoom(String(req.params.room || '').trim());
-  const { user='Tester', avatar='', diamonds=50 } = req.body || {};
-  if (!isRunning(r)) return postJSON(res, { ok: true, ignored: true, reason: 'auction-ended' });
-  const prev = r.donors.get(user) || { total: 0, avatar };
-  prev.total += Number(diamonds);
-  prev.avatar = avatar || prev.avatar;
-  r.donors.set(user, prev);
-  r.auction.donationsTotal += Number(diamonds);
-  emitDonation(r);
-  postJSON(res, { ok: true, top: r.auction.top });
-});
-
-/* ================== USERS / ADMIN (igual que antes resumido) ================== */
-function requireAdmin(req, res, next) {
-  const headerKey = String(req.headers['x-admin-key'] || '').trim();
-  if (headerKey !== ADMIN_KEY) return res.status(401).json({ ok: false, error: 'unauthorized' });
-  next();
+                  <div className="progress-strip" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
 }
 
-app.post('/user/verify', async (req, res) => {
-  const tiktokUser = normalizeUsername(req.body?.tiktokUser);
-  if (!tiktokUser) return res.status(400).json({ ok: false, error: 'user-required' });
-  try {
-    const result = await pool.query('SELECT * FROM users WHERE tiktok_user = $1', [tiktokUser]);
-    if (result.rows.length === 0) return res.json({ ok: false, error: 'user-not-found' });
-    const user = result.rows[0];
-    const t = Date.now();
-    if (user.status === 'disabled') return res.json({ ok: false, error: 'user-disabled' });
-    if (t > user.expires_at) {
-      await pool.query('UPDATE users SET status = $1 WHERE tiktok_user = $2', ['expired', tiktokUser]);
-      return res.json({ ok: false, error: 'subscription-expired', daysRemaining: 0 });
+/* ======================= WIZARD ======================= */
+function RoomWizard() {
+  const q = new URLSearchParams(location.search);
+  const [room, setRoom] = useState(randomRoom());
+  const [top, setTop] = useState(3);
+  const [user, setUser] = useState("");
+  const [ws] = useState(q.get("ws") || DEFAULT_WS);
+
+  const makeUrl = () => {
+    const p = new URLSearchParams();
+    p.set("ws", sanitizeBaseUrl(ws));
+    p.set("room", room.trim());
+    p.set("top", String(top));
+    if (user.trim()) {
+      p.set("autouser", user.replace(/^@+/, "").trim());
+      p.set("user", user.replace(/^@+/, "").trim());
     }
-    await pool.query('UPDATE users SET last_used = $1, usage_count = usage_count + 1 WHERE tiktok_user = $2', [t, tiktokUser]);
-    res.json({ ok: true, tiktokUser: user.tiktok_user, expiresAt: user.expires_at, daysRemaining: Math.ceil((user.expires_at - t) / 86400000) });
-  } catch (err) {
-    console.error('Error verificando usuario:', err);
-    res.status(500).json({ ok: false, error: 'database-error' });
-  }
-});
+    return `${location.origin}/?${p.toString()}`;
+  };
 
-// (Opcional) stats mínimas para panel
-app.get('/admin/stats', requireAdmin, async (_req, res) => {
-  try {
-    const q = `
-      SELECT
-        COUNT(*)::int AS total,
-        SUM((status = 'active')::int)::int   AS active,
-        SUM((status = 'expired')::int)::int  AS expired,
-        SUM((status = 'disabled')::int)::int AS disabled
-      FROM users;
-    `;
-    const r = await pool.query(q);
-    res.json({ ok: true, stats: r.rows[0] || { total:0, active:0, expired:0, disabled:0 } });
-  } catch (err) {
-    console.error('Error /admin/stats:', err);
-    res.status(500).json({ ok:false, error:'database-error' });
-  }
-});
-
-/* ================== SOCKET & HEALTH ================== */
-io.on('connection', (socket) => {
-  const roomId = String((socket.handshake?.query?.room || '')).trim();
-  if (!roomId) { socket.disconnect(true); return; }
-  const r = getRoom(roomId);
-  socket.join(r.id);
-  socket.emit('state', r.auction);
-});
-
-app.get('/health', (_req, res) => res.send('ok'));
-
-server.listen(PORT, () => {
-  console.log(`🚀 Backend on :${PORT}`);
-  console.log(`🔑 Admin key: ${ADMIN_KEY ? '(set)' : '(not set)'}`);
-  console.log(`💾 Database: ${process.env.DATABASE_URL ? 'Configured' : 'Not configured'}`);
-});
+  return (
+    <div className="wizard">
+      <div className="w-card">
+        <h2>Crear sala de subasta</h2>
+        <div className="w-field">
+          <label>Nombre de sala</label>
+          <div className="w-row">
+            <input value={room} onChange={e=>setRoom(e.target.value)} placeholder="miSala123" />
+            <button className="w-btn" onClick={()=>setRoom(randomRoom())}>Aleatorio</button>
+          </div>
+        </div>
+        <div className="w-field">
+          <label>Top a mostrar</label>
+          <select value={top} onChange={e=>setTop(Number(e.target.value))}>
+            <option value={1}>Top 1</option>
+            <option value={3}>Top 3</option>
+            <option value={5}>Top 5</option>
+          </select>
+        </div>
+        <div className="w-field">
+          <label>Usuario de TikTok (sin @)</label>
+          <input value={user} onChange={e=>setUser(e.target.value)} placeholder="usuario123" />
+        </div>
+        <div className="w-actions">
+          <button className="w-primary" onClick={()=>{ location.href = makeUrl() }}>Abrir overlay</button>
+          <button className="w-success" onClick={async()=>{
+            const link = makeUrl();
+            try { await navigator.clipboard.writeText(link); alert("Link copiado"); }
+            catch { prompt("Copia el link:", link); }
+          }}>Copiar link</button>
+        </div>
+        <div className="w-hint">Pega el link en <b>Browser Source</b> de TikTok LIVE Studio.</div>
+        <div className="w-hint" style={{marginTop:8}}>
+          Panel Admin: <a href={`/?view=admin&ws=${encodeURIComponent(sanitizeBaseUrl(ws))}`}>abrir aquí</a>
+        </div>
+      </div>
+    </div>
+  );
+}
