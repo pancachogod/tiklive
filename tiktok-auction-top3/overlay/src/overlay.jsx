@@ -592,3 +592,10 @@ async function postJSON(url, body){
   const text = await r.text(); return { ok: r.ok, status: r.status, data: text ? JSON.parse(text) : {} }
 }
 function randomRoom(){ return 'room-' + Math.random().toString(36).slice(2,7) }
+
+// Limpia participantes SOLO en el cliente (no toca ganadores)
+const clearParticipantsClient = React.useCallback(() => {
+  setState(prev => ({ ...prev, top: [], donationsTotal: 0 }));
+  setTotalParticipants?.(0); // si tienes este state
+}, []);
+
