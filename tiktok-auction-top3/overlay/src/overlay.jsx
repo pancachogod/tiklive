@@ -352,7 +352,7 @@ function AdminPanel() {
   )
 }
 
-/* =================== Overlay (cronómetro único: main → delay) =================== */
+/* =================== Overlay (cronómetro único con etiqueta en delay) =================== */
 function AuctionOverlay() {
   const q = useMemo(() => new URLSearchParams(location.search), [])
   const room = (q.get('room') || 'demo').trim()
@@ -365,18 +365,17 @@ function AuctionOverlay() {
   const [state, setState] = useState({ title: initialTitle, endsAt: 0, top: [], donationsTotal: 0 })
   const [now, setNow] = useState(Date.now())
 
-  // Panel de control visible por defecto (para que no aparezca el alert)
   const [dashboard, setDashboard] = useState(true)
 
-  // ===== Cronómetro único con fases =====
-  const [tInit, setTInit] = useState(60)   // tiempo normal
-  const [delayS, setDelayS] = useState(10) // tiempo delay
+  // Cronómetro
+  const [tInit, setTInit] = useState(60)
+  const [delayS, setDelayS] = useState(10)
   const [phase, setPhase] = useState('idle') // 'idle' | 'main' | 'delay' | 'done'
   const [paused, setPaused] = useState(false)
-  const [endsAt, setEndsAt] = useState(0) // espejo local del final del contador
-  const delayArmedRef = useRef(false)      // evita doble activación al terminar main
+  const [endsAt, setEndsAt] = useState(0)
+  const delayArmedRef = useRef(false)
 
-  // Ganadores & participantes (persistidos por sala)
+  // Ganadores
   const [winners, setWinners] = useState([])
   const [totalParticipants, setTotalParticipants] = useState(0)
   const [showWinner, setShowWinner] = useState(false)
@@ -386,7 +385,6 @@ function AuctionOverlay() {
   // socket
   const socketRef = useRef(null)
 
-  // cargar / guardar ganadores por sala
   useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(winnersKey) || '[]')
@@ -397,33 +395,19 @@ function AuctionOverlay() {
     try { localStorage.setItem(winnersKey, JSON.stringify(winners)) } catch {}
   }, [winners, winnersKey])
 
-  // socket.io handlers
   useEffect(() => {
     const socket = io(WS, { transports:['websocket','polling'], query:{ room } })
     socketRef.current = socket
-
-    socket.on('connect', () => console.log('✅ Socket conectado'))
-    socket.on('disconnect', () => console.log('❌ Socket desconectado'))
-
-    socket.on('state', st => {
-      // espejo del backend (título, endsAt si el server lo emite, etc.)
-      setState(prev => ({ ...prev, ...st }))
-    })
-
-    socket.on('donation', d => {
-      setState(prev => ({ ...prev, top: d.top, donationsTotal: d.donationsTotal ?? prev.donationsTotal }))
-    })
-
+    socket.on('state', st => setState(prev => ({ ...prev, ...st })))
+    socket.on('donation', d => setState(prev => ({ ...prev, top: d.top, donationsTotal: d.donationsTotal ?? prev.donationsTotal })))
     return () => socket.close()
   }, [WS, room])
 
-  // reloj local
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 200)
     return () => clearInterval(id)
   }, [])
 
-  // autoconfigurar usuario si viene por query
   useEffect(() => {
     (async () => {
       if (!autoUser) return
@@ -431,84 +415,58 @@ function AuctionOverlay() {
     })()
   }, [autoUser, WS, room])
 
-  // ======= Control de fases por tiempo =======
   const remainMs = Math.max(0, (paused ? endsAt : endsAt) - now)
   const mm = String(Math.floor((paused ? 0 : remainMs) / 1000 / 60)).padStart(2, '0')
   const ss = String(Math.floor((paused ? 0 : remainMs) / 1000) % 60).padStart(2, '0')
 
   useEffect(() => {
     if (paused) return
-
-    // MAIN -> DELAY (auto)
     if (phase === 'main' && remainMs === 0 && delayArmedRef.current) {
       delayArmedRef.current = false
       startDelay()
       return
     }
-
-    // DELAY -> DONE
     if (phase === 'delay' && remainMs === 0) {
-      // ganador final
       const finalWinner = state.top?.[0]
       if (finalWinner) {
         setCurrentWinner(finalWinner)
         setWinners(w => [{ name: finalWinner.user, total: finalWinner.total }, ...w])
         setShowWinner(true)
-        setTimeout(() => { setShowWinner(false); setCurrentWinner(null) }, 2500) // animación más corta
+        setTimeout(() => { setShowWinner(false); setCurrentWinner(null) }, 2500)
       }
       setPhase('done')
       setEndsAt(0)
     }
-
     setTotalParticipants(state.top?.length || 0)
   }, [phase, remainMs, paused, state.top])
 
-  // ======= Acciones de control =======
   const startMain = async () => {
     const mainSec = Math.max(1, Number(tInit) || 0)
     if (!mainSec) return
     setPhase('main')
     setPaused(false)
     delayArmedRef.current = true
-
-    // Limpia ranking en el server e inicia cuenta principal
     await postJSON(`${WS}/${room}/auction/start`, { durationSec: mainSec, title: state.title })
-
-    // sincroniza reloj local
     setEndsAt(Date.now() + mainSec * 1000)
   }
 
   const startDelay = async () => {
     const d = Math.max(0, Number(delayS) || 0)
-    if (!d) {
-      setPhase('done'); setEndsAt(0)
-      return
-    }
+    if (!d) { setPhase('done'); setEndsAt(0); return }
     setPhase('delay')
     setPaused(false)
-
-    // Extiende sin limpiar ranking ni donaciones
     await postJSON(`${WS}/${room}/auction/extend`, { durationSec: d, title: state.title })
-
     setEndsAt(Date.now() + d * 1000)
   }
 
   const togglePause = () => setPaused(p => !p)
+  const finalize    = async () => { setPhase('done'); setPaused(false); setEndsAt(0) }
+  const restart     = async () => { await startMain() }
 
-  const finalize = async () => {
-    setPhase('done')
-    setPaused(false)
-    setEndsAt(0)
-  }
-
-  const restart = async () => {
-    await startMain()
-  }
-
-  const clearParticipantsClient = React.useCallback(() => {
+  const clearParticipantsClient = () => {
     setState(prev => ({ ...prev, top: [], donationsTotal: 0 }))
     setTotalParticipants(0)
-  }, [])
+  }
 
   const getBorderColor = (i) => ['#FFD700','#C0C0C0','#CD7F32','#0ff'][i] || '#0ff'
 
@@ -533,6 +491,7 @@ function AuctionOverlay() {
         <div className="panel">
           <div className="panel-container">
             <div className="timer-box">
+              {phase === 'delay' && <div className="delay-label">Tiempo de delay</div>}
               <div className="timer">{mm}:{ss}</div>
             </div>
             <div className="board">
